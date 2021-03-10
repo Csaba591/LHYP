@@ -8,6 +8,7 @@ import sys
 import pickle
 from pydicom.pixel_data_handlers.util import apply_modality_lut
 from pydicom import dcmread
+from con_reader import CONreaderVM
 
 from dicom_utils import *
 
@@ -15,10 +16,11 @@ def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 class Patient:
-    def __init__(self, images, patient_data, pathology):
+    def __init__(self, patient_id, images, patient_data, pathology):
+        self.id = patient_id
         self.images = images # numpy array
         self.patient_data = patient_data
-        self.label = pathology 
+        self.label = pathology
 
 AXIS = 'sa'
 
@@ -27,16 +29,32 @@ def process_image(image, dataset):
     perc_cut = percentile_cut(rescaled)
     return normalize(perc_cut)
 
-def get_images_sa(dr):
+def get_images_sa(dr, cr):
     slice_skip = dr.num_slices // 3
-    frame_skip = 3
+    if slice_skip == 0: slice_skip = 1
+    frames_to_take = [
+        0, 1,                                   # diastole
+        dr.num_frames//2, dr.num_frames//2 + 1, # inbetween
+        -2, -1                                  # systole
+    ]
+    all_contours = cr.get_hierarchical_contours()
+    top, bottom, left, right = get_roi_from_contours(all_contours)
+    roi_w, roi_h = right - left, bottom - top
+    masked_w, masked_h = 128, 128
+    padding_w, padding_h = (masked_w - roi_w) // 2, (masked_h - roi_h) // 2
+    
     images = []
     for s in range(0, dr.num_slices, slice_skip):
-        for f in range(0, dr.num_frames, frame_skip):
+        for f in frames_to_take:
             image = dr.get_image(s, f)
             ds = dcmread(dr.get_dcm_path(s, f))
             processed = process_image(image, ds)
-            images.append(processed)
+            # cut out
+            roi = processed[top:bottom, left:right]
+            masked = np.zeros((masked_h, masked_w), dtype=np.uint8)
+            # place in middle of black image
+            masked[padding_h:padding_h+roi_h, padding_w:padding_w+roi_w] = roi[:, :]
+            images.append(masked)
     return images
 
 def get_images_sale(dr):
@@ -49,7 +67,7 @@ def get_images_sale(dr):
         images.append(processed)
     return images
 
-def generate_patient_dataset(patient_path):
+def generate_patient_dataset(patient_id, patient_path):
     axes = [d for d in os.listdir(patient_path) if os.path.isdir(pjoin(patient_path, d))]
     if AXIS not in axes:
         eprint('Invalid axis', AXIS)
@@ -59,23 +77,22 @@ def generate_patient_dataset(patient_path):
     if AXIS == 'sa':
         images_path = pjoin(axis_path, 'images')
         dr = DCMreaderVM(images_path)
-        image_reader_fn = get_images_sa
+        cr = CONreaderVM(pjoin(axis_path, 'contours.con'))
+        images = get_images_sa(dr, cr)
     elif AXIS == 'sale':
         dr = SaleReader(axis_path)
-        image_reader_fn = get_images_sale
+        images = get_images_sale(dr)
     else:
         eprint(r"Axis was not 'sa' nor 'sale'")
         return None
     
     if dr.broken or dr.num_images == 0:
         return None
-    
-    images = image_reader_fn(dr)
-    
+
     patient_data = dr.patient_data
     label = get_label(patient_path)
     
-    return Patient(images, patient_data, label)
+    return Patient(patient_id, images, patient_data, label)
 
 def dump_data(path, patient_id, data):
     eprint('Dumping data for', patient_id)
@@ -90,7 +107,7 @@ def generate_dataset(samples_path, out_path):
         patient_path = pjoin(samples_path, patient_id)
     
         eprint('Started for patient', patient_id)
-        data = generate_patient_dataset(patient_path)
+        data = generate_patient_dataset(patient_id, patient_path)
         if data is None:
             eprint('Failed! No images were found.')
             continue
