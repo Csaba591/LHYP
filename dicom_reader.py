@@ -2,6 +2,7 @@ from utils import get_logger
 import pydicom as dicom
 import numpy as np
 import os
+from dicom_utils import get_patient_data
 
 logger = get_logger(__name__)
 
@@ -17,6 +18,7 @@ class DCMreaderVM:
         self.num_slices = 0
         self.num_frames = 0
         self.broken = False
+        self.patient_data = None
         images = []
         slice_locations = []
         file_paths = []        
@@ -26,6 +28,7 @@ class DCMreaderVM:
         if len(dcm_files) == 0:  # sometimes the order number is missing at the end
             dcm_files = sorted(os.listdir(folder_name))
 
+        temp_ds = None
         for file in dcm_files:
 
             if file.find('.dcm') != -1:
@@ -37,6 +40,9 @@ class DCMreaderVM:
                 except:
                     self.broken = True
                     return
+        
+        if temp_ds is not None:
+            self.patient_data = get_patient_data(temp_ds)
         
         current_sl = -1
         frames = 0
