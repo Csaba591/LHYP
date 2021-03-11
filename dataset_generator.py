@@ -22,16 +22,18 @@ class Patient:
         self.patient_data = patient_data
         self.label = pathology
 
-AXIS = 'sa'
-
 def process_image(image, dataset):
-    rescaled = apply_modality_lut(image, dataset)
-    perc_cut = percentile_cut(rescaled)
-    return normalize(perc_cut)
+    preproc = apply_modality_lut(image, dataset)
+    perc_cut = percentile_cut(preproc)
+    return rescale(perc_cut)
 
 def get_images_sa(dr, cr):
+    images = []
+    if dr.broken: return images
+    
     slice_skip = dr.num_slices // 3
     if slice_skip == 0: slice_skip = 1
+    
     frames_to_take = [
         0, 1,                                   # diastole
         dr.num_frames//2, dr.num_frames//2 + 1, # inbetween
@@ -43,7 +45,9 @@ def get_images_sa(dr, cr):
     masked_w, masked_h = 128, 128
     padding_w, padding_h = (masked_w - roi_w) // 2, (masked_h - roi_h) // 2
     
-    images = []
+    if padding_w < 0 or padding_h < 0:
+        eprint('ERROR: sale ROI larger than', (masked_w, masked_h))
+    
     for s in range(0, dr.num_slices, slice_skip):
         for f in frames_to_take:
             image = dr.get_image(s, f)
@@ -59,34 +63,36 @@ def get_images_sa(dr, cr):
 
 def get_images_sale(dr):
     images = []
-    type_index = 0 # take a single sequence only
-    for seq_index in range(dr.num_frames_per_sequence):
-        ds = dcmread(dr.get_path(type_index, seq_index))
-        image = dr.get_image(type_index, seq_index)
+    if dr.broken: return images
+    
+    seq_index = 0 # take a single sequence only
+    for frame_index in range(dr.num_frames_per_sequence):
+        ds = dcmread(dr.get_path(seq_index, frame_index))
+        image = dr.get_image(seq_index, frame_index)
         processed = process_image(image, ds)
         images.append(processed)
     return images
 
-def generate_patient_dataset(patient_id, patient_path):
+def generate_patient_dataset(patient_id, patient_path, axis='sa'):
     axes = [d for d in os.listdir(patient_path) if os.path.isdir(pjoin(patient_path, d))]
-    if AXIS not in axes:
-        eprint('Invalid axis', AXIS)
+    if axis not in axes:
+        eprint('Patient', patient_id, 'has no data for', axis)
         return None
     
-    axis_path = pjoin(patient_path, AXIS)
-    if AXIS == 'sa':
+    axis_path = pjoin(patient_path, axis)
+    if axis == 'sa':
         images_path = pjoin(axis_path, 'images')
         dr = DCMreaderVM(images_path)
         cr = CONreaderVM(pjoin(axis_path, 'contours.con'))
         images = get_images_sa(dr, cr)
-    elif AXIS == 'sale':
+    elif axis == 'sale':
         dr = SaleReader(axis_path)
         images = get_images_sale(dr)
     else:
         eprint(r"Axis was not 'sa' nor 'sale'")
         return None
     
-    if dr.broken or dr.num_images == 0:
+    if len(images) == 0:
         return None
 
     patient_data = dr.patient_data
@@ -101,25 +107,26 @@ def dump_data(path, patient_id, data):
         pickle.dump(data, dump_file, pickle.HIGHEST_PROTOCOL)
     eprint('Dumped to', filename)
 
-def generate_dataset(samples_path, out_path):
+def generate_dataset(samples_path, out_path, axis='sa'):
     patient_ids = [ID for ID in os.listdir(samples_path) if os.path.isdir(pjoin(samples_path, ID))]
     for patient_id in patient_ids:
         patient_path = pjoin(samples_path, patient_id)
     
         eprint('Started for patient', patient_id)
-        data = generate_patient_dataset(patient_id, patient_path)
+        data = generate_patient_dataset(patient_id, patient_path, axis=axis)
         if data is None:
             eprint('Failed! No images were found.')
             continue
             
-        pickled_path = pjoin('..', 'pickled_samples')
-        if not os.path.exists(pickled_path):
-            os.mkdir(pickled_path)
+        os.makedirs(out_path, exist_ok=True)
         
-        
-        dump_data(pickled_path, patient_id, data)
+        dump_data(out_path, patient_id, data)
 
 if __name__ == '__main__':
     path_to_samples = pjoin('..', 'samples')
-    out_path = pjoin('..', 'pickled_samples')
-    generate_dataset(path_to_samples, out_path)
+    for axis in ['sa', 'sale']:
+        eprint('--- Generating', axis, 'data')
+        out_path = pjoin('..', 'pickled_samples', axis)
+        generate_dataset(path_to_samples, out_path, axis=axis)
+        eprint('---', axis, 'done')
+        
