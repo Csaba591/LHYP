@@ -9,7 +9,7 @@ def percentile_cut(img_mtx):
     img_mtx = (img_mtx - p1) / (p99 - p1)
     return img_mtx
 
-def normalize(image):
+def rescale(image):
     return ((image - image.min()) * (1/(image.max() - image.min()) * 255)).astype('uint8')
 
 def get_label(patient_folder):
