@@ -19,9 +19,11 @@ def get_label(patient_folder):
 
 def get_patient_data(ds):
     meta_data = {
-        'gender': ds['0x00100040'].value,
-        'weight': ds['0x00101030'].value,
-        'pregnant': ds['0x001021C0'].value,
+        'gender': ds.PatientSex,
+        'weight': ds.PatientWeight,
+        'pregnant': ds.PregnancyStatus,
+        'heart_rate': ds.HeartRate,
+        'time_of_day': ds.StudyTime
     }
     return meta_data
 
@@ -39,10 +41,26 @@ def get_roi_from_contours(contours):
                         left = x
                     if right is None or x > right:
                         right = x
+    
     top, bottom, left, right = floor(top), ceil(bottom), floor(left), ceil(right)
-    margin = 2
-    if top >= margin: top -= margin
-    bottom += margin
-    if left >= margin: left -= margin
-    right += margin
     return top, bottom, left, right
+
+# for post processing
+def cut_out_roi(ROI, image):
+    top = ROI['top']
+    bottom = ROI['bottom']
+    left = ROI['left']
+    right = ROI['right']
+    
+    roi_w, roi_h = right - left, bottom - top
+    masked_w, masked_h = 128, 128
+    padding_w, padding_h = (masked_w - roi_w) // 2, (masked_h - roi_h) // 2
+    if padding_w < 0 or padding_h < 0:
+        eprint('ERROR: sale ROI larger than', (masked_w, masked_h))
+    
+    # cut out
+    cut_out = image[top:bottom, left:right]
+    masked = np.zeros((masked_h, masked_w), dtype=np.uint8)
+    # place in middle of black image
+    masked[padding_h:padding_h+roi_h, padding_w:padding_w+roi_w] = cut_out[:, :]
+    return masked
