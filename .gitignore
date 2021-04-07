@@ -1,3 +1,10 @@
+# training metrics and saves
+ml/saved_models
+ml/training_logs
+
+# model saves
+*.chkpt
+
 # Custom files, folders to ignore
 .vscode/
 *.log
