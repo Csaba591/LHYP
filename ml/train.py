@@ -22,7 +22,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # hyperparams
 input_shape = (128, 128)
-num_epochs = 300
+num_epochs = 50
 validate_every = 4
 lr = 0.001
 batch_size = 4
@@ -43,7 +43,7 @@ class EarlyStopping:
         
     def __call__(self, val_loss, model, optimizer, epoch):
         loss = val_loss.item()
-        if self.best_loss is None or loss < self.best_loss - self.delta:
+        if self.best_loss is None or loss <= self.best_loss - self.delta:
             self.best_loss = loss
             self._save_checkpoint(model, optimizer, epoch)
             self.patience_counter = 0
@@ -84,9 +84,10 @@ class Trainer:
         self.early_stopping = early_stopping
         self.epoch = 0
         self.TP, self.FP, self.TN, self.FN = 0, 0, 0, 0
+        self.logger = Logger(self.model.name)
         
         if model_load_path is not None:
-             self._load_model(model_load_path)
+            self._load_model(model_load_path)
         
         self._init_dataset()
     
@@ -127,13 +128,15 @@ class Trainer:
             learning_loss = self.learn()
             if epoch % validate_every == 0:
                 validation_loss = self.validate()
-                self._print_progress(epoch, self.epoch+num_epochs, learning_loss, validation_loss)
-            
+                # self._print_progress(epoch, self.epoch+num_epochs, learning_loss, validation_loss)
+                self.logger.log(epoch, learning_loss, validation_loss)
                 if self.early_stopping is not None and \
                     self.early_stopping(validation_loss, self.model, self.optim, epoch):
                     
                     eprint('Stopping early at val loss:', validation_loss.item())
                     return
+        
+        self.logger.close()
             
     def learn(self):
         self.model.train()
@@ -199,7 +202,7 @@ class Trainer:
         self.TP, self.FP, self.TN, self.FN = 0, 0, 0, 0
         
         with torch.no_grad():
-            for X, y in self.test_loader:
+            for X, y in self.val_loader:
                 # move to GPU (if available)
                 X = X.to(device)
                 y = y.to(device)
@@ -218,10 +221,14 @@ class Trainer:
                             self.FP += 1
                         else: self.FN += 1
         
-        self._print_eval()
+        self.logger.log_stats(self.TP, self.FP, self.TN, self.FN)
+        # self._print_eval()
       
     def _load_model(self, model_path):
         path = os.path.join(model_path, self.model.save_path)
+        if not os.path.exists(path):
+            return
+        
         data = torch.load(path)
         
         self.model.load_state_dict(data['model_state_dict'])
@@ -232,7 +239,9 @@ class Trainer:
         
         if 'epoch' in data and 'val_loss' in data:
             epoch, loss = data['epoch'], data['val_loss']
-            self.epoch = epoch
+            self.epoch = epoch + 1
+            if self.early_stopping is not None:
+                self.early_stopping.best_loss = loss
             eprint(f'Model was saved at epoch {epoch} with val loss: {loss}')
         
     def _init_dataset(self):
@@ -267,15 +276,15 @@ if __name__ == '__main__':
     # for images, label in train_ds:
     #     eprint(images.shape, images.mean(), images.std())
     
-    # net = nets.CNN(train_ds.num_channels, input_shape, 'SimpleCNN')
-    net = nets.Linear(train_ds.num_channels, input_shape, 'SimpleLinear')
+    net = nets.SimpleCNN(train_ds.num_channels, input_shape, 'SimpleCNN')
+    # net = nets.Linear(train_ds.num_channels, input_shape, 'SimpleLinear')
     net.to(device)
     
     optim = torch.optim.Adam(params=net.parameters(), lr=lr)
     
-    model_save_path = os.path.join('saved_models')
-    es = EarlyStopping(patience=20, delta=0.0, model_save_path=model_save_path)
+    model_save_path = 'saved_models'
+    es = EarlyStopping(patience=num_epochs, delta=0.0, model_save_path=model_save_path)
 
-    trainer = Trainer(net, optim, train_ds, es, None)
+    trainer = Trainer(net, optim, train_ds, es, model_save_path)
     
     trainer.train()

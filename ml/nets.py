@@ -25,7 +25,7 @@ class Linear(nn.Module):
 
 class SimpleCNN(nn.Module):
     def __init__(self, num_channels, input_shape, name):
-        super(CNN, self).__init__()
+        super(SimpleCNN, self).__init__()
         self.name = name
         
         self.conv1 = nn.Conv2d(in_channels=num_channels, out_channels=12, kernel_size=4)

@@ -4,6 +4,7 @@ import random
 import numpy as np
 import torch
 from dataset import SADataset, SALEDataset
+import csv
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
@@ -83,3 +84,48 @@ def train_test_split(axis, pickles_path, test_ids_path, test_percent=0.15):
         test_ds.num_channels = num_channels
         train_ds.num_channels = num_channels
     return train_ds, test_ds
+
+
+class Logger:
+    def __init__(self, model_name):
+        self.model_name = model_name
+        self.file = None
+        self.first_write = True
+        self._open()
+        self.writer = csv.writer(self.file, delimiter=',')
+        # write header
+        if self.first_write:
+            self.writer.writerow(['epoch', 'train loss', 'val loss'])
+            self.first_write = False
+
+    def log(self, epoch, train_loss, val_loss):
+        self.writer.writerow([epoch, train_loss.item(), val_loss.item()])
+        
+    def log_stats(self, TP, FP, TN, FN):
+        path = os.path.join('training_logs', f'{self.model_name}_stats.csv')
+        with open(path, 'wt', newline='') as stats_file:
+            writer = csv.writer(stats_file, delimiter=',')
+            # write header
+            writer.writerow(['TP', 'FP', 'TN', 'FN', 'recall', 'specificity', 'precision', 'F1'])
+            
+            rec = recall(TP, FN)
+            spec = specificity(TN, FP)
+            prec = precision(TP, FP)
+            F1_score = F1(rec, prec)
+            writer.writerow([TP, FP, TN, FN, rec, spec, prec, F1_score])
+    
+    def _open(self):
+        if self.file is not None and not self.file.closed:
+            return
+        path = os.path.join('training_logs', f'{self.model_name}_loss.csv')
+        if not os.path.exists(path):
+            os.makedirs('training_logs', exist_ok=True)
+            self.first_write = True
+            self.file = open(path, 'wt', newline='')
+        else:
+            self.first_write = False
+            self.file = open(path, 'a', newline='')
+    
+       
+    def close(self):
+        self.file.close()
