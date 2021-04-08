@@ -84,6 +84,8 @@ def generate_patient_dataset(patient_id, patient_path, axis):
     if axis == 'sa':
         images_path = pjoin(axis_path, 'images')
         dr = DCMreaderVM(images_path)
+        if not (os.path.exists(pjoin(axis_path, 'contours.con'))):
+            return None
         cr = CONreaderVM(pjoin(axis_path, 'contours.con'))
         images, ROI = get_images_sa(dr, cr)
     elif axis == 'sale':
@@ -115,7 +117,12 @@ def generate_dataset(samples_path, out_path):
         for pat_index, patient_id in enumerate(patient_ids):
             patient_path = pjoin(samples_path, patient_id)
         
-            data = generate_patient_dataset(patient_id, patient_path, axis=axis)
+            if os.path.exists(pjoin(pjoin(out_path, axis), patient_id + '.pickle')):
+                continue
+            try:
+                data = generate_patient_dataset(patient_id, patient_path, axis=axis)
+            except (AttributeError, IndexError):
+                data = None
             if data is None: continue
             
             axis_path = pjoin(out_path, axis)
