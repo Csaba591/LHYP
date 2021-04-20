@@ -1,0 +1,10 @@
+{
+    "batch_size": [4],
+    "learning_rate": [0.001],
+    "validate_every": [2],
+    "epochs": 50,
+    "model": "SuperCoolCNN",
+    "loss_function": "relu",
+    "optimizer": "Adam",
+    "weight_init": "Xavier"
+}
