@@ -11,6 +11,7 @@ from torch import nn
 import torch.nn.functional as F
 from ml_utils import *
 import nets
+import json
 
 # go up one level
 # sys.path.insert(1, os.path.join(sys.path[0], '..'))
@@ -74,22 +75,24 @@ class Trainer:
         model, 
         optimizer, 
         dataset, 
-        early_stopping=None,
+        batch_size, 
+        validate_every, 
+        checkpoint_saver=None,
         model_load_path=None):
         
         self.ds = dataset
         self.model = model
         self.optim = optimizer
         self.criterion = F.binary_cross_entropy
-        self.early_stopping = early_stopping
-        self.epoch = 0
-        self.TP, self.FP, self.TN, self.FN = 0, 0, 0, 0
+        self.validate_every = validate_every
+        self.checkpoint_saver = checkpoint_saver
+        self.epoch = 1
         self.logger = Logger(self.model.name)
         
         if model_load_path is not None:
             self._load_model(model_load_path)
         
-        self._init_dataset()
+        self._init_dataset(batch_size)
     
     def _print_progress(self, epoch, total_epochs, learn_loss, val_loss):
         eprint(f'Epoch [{epoch}/{total_epochs}] - train loss: {learn_loss.item()}', end='')
@@ -124,14 +127,17 @@ class Trainer:
         eprint('- Validation samples (w/o aug):', len(self.val_set))
         eprint('- Batch size:', batch_size)
         
+        moving_avg_loss = 0
         for epoch in range(self.epoch, self.epoch+num_epochs):
             learning_loss = self.learn()
+            moving_avg_loss += learning_loss.item()
             if epoch % validate_every == 0:
+                moving_avg_loss /= validate_every
                 validation_loss = self.validate()
                 # self._print_progress(epoch, self.epoch+num_epochs, learning_loss, validation_loss)
-                self.logger.log(epoch, learning_loss, validation_loss)
-                if self.early_stopping is not None and \
-                    self.early_stopping(validation_loss, self.model, self.optim, epoch):
+                self.logger.log(epoch, moving_avg_loss, validation_loss.item())
+                if self.checkpoint_saver is not None and \
+                    self.checkpoint_saver(validation_loss, self.model, self.optim, epoch):
                     
                     eprint('Stopping early at val loss:', validation_loss.item())
                     return
@@ -181,28 +187,13 @@ class Trainer:
                 total_loss += self.criterion(output, y)
         
         return total_loss / count
-    
-    def _print_eval(self):
-        eprint(f'True pos:\t{self.TP}')
-        eprint(f'True neg:\t{self.TN}')
-        eprint(f'False pos:\t{self.FP}')
-        eprint(f'False neg:\t{self.FN}')
-        eprint('Accuracy:', accuracy(self.TP, self.FP, self.TN, self.FN), sep='\t')
-        rec = recall(self.TP, self.FN)
-        eprint('Recall:', round(rec, 4), sep='\t\t')
-        spec = specificity(self.TN, self.FP)
-        eprint('Specificity:', round(spec, 4), sep='\t')
-        prec = precision(self.TP, self.FP)
-        eprint('Precision:', round(prec, 4), sep='\t')
-        F1_score = F1(rec, prec)
-        eprint('F1:', round(F1_score, 4), sep='\t\t')
          
-    def eval(self):
+    def eval(self, data_loader):
         self.model.eval()
-        self.TP, self.FP, self.TN, self.FN = 0, 0, 0, 0
+        TP, FP, TN, FN = 0, 0, 0, 0
         
         with torch.no_grad():
-            for X, y in self.val_loader:
+            for X, y in data_loader:
                 # move to GPU (if available)
                 X = X.to(device)
                 y = y.to(device)
@@ -214,15 +205,14 @@ class Trainer:
                     prediction = out_tensor.item() > 0.5
                     if prediction == truth:
                         if truth is True:
-                            self.TP += 1
-                        else: self.TN += 1
+                            TP += 1
+                        else: TN += 1
                     else:
                         if truth is False:
-                            self.FP += 1
-                        else: self.FN += 1
+                            FP += 1
+                        else: FN += 1
         
-        self.logger.log_stats(self.TP, self.FP, self.TN, self.FN)
-        # self._print_eval()
+        self.logger.log_stats(TP, FP, TN, FN)
       
     def _load_model(self, model_path):
         path = os.path.join(model_path, self.model.save_path)
@@ -240,11 +230,11 @@ class Trainer:
         if 'epoch' in data and 'val_loss' in data:
             epoch, loss = data['epoch'], data['val_loss']
             self.epoch = epoch + 1
-            if self.early_stopping is not None:
-                self.early_stopping.best_loss = loss
+            if self.checkpoint_saver is not None:
+                self.checkpoint_saver.best_loss = loss
             eprint(f'Model was saved at epoch {epoch} with val loss: {loss}')
         
-    def _init_dataset(self):
+    def _init_dataset(self, batch_size):
         val_len = int(len(self.ds) * splits['val'])
         train_len = len(self.ds) - val_len
         assert val_len > 0, '_init_dataset(): val_len can\'t be 0!'
@@ -270,21 +260,32 @@ def save_model(model, optimizer, path):
 if __name__ == '__main__':
     # seed_everything(2222222222)
     
+    with open('param_config.json', 'r') as config:
+        params = json.load(config)
+        
+                
+    
     path = os.path.join('..', '..', 'pickled_samples')
     train_ds, test_ds = train_test_split('sa', path, 'test2.split', splits['test'])
     
     # for images, label in train_ds:
     #     eprint(images.shape, images.mean(), images.std())
     
-    net = nets.SimpleCNN(train_ds.num_channels, input_shape, 'SimpleCNN')
+    # net = nets.SimpleCNN(train_ds.num_channels, input_shape, 'SimpleCNN')
     # net = nets.Linear(train_ds.num_channels, input_shape, 'SimpleLinear')
-    net.to(device)
-    
-    optim = torch.optim.Adam(params=net.parameters(), lr=lr)
-    
-    model_save_path = 'saved_models'
-    es = EarlyStopping(patience=num_epochs, delta=0.0, model_save_path=model_save_path)
+    for batch_size in params["batch_size"]:
+        for learning_rate in params["learning_rate"]:
+            for validate_every in params["validate_every"]:
+                eprint(f'Running with: batch_size: {batch_size}, lr: {learning_rate}, val_every: {validate_every}')
+                
+                net = nets.BasicCNN(train_ds.num_channels, input_shape, 'BasicCNN')
+                net.to(device)
+                
+                optim = torch.optim.Adam(params=net.parameters(), lr=learning_rate)
+                
+                model_save_path = 'saved_models'
+                es = EarlyStopping(patience=num_epochs, delta=0.0, model_save_path=model_save_path)
 
-    trainer = Trainer(net, optim, train_ds, es, model_save_path)
-    
-    trainer.train()
+                trainer = Trainer(net, optim, train_ds, batch_size, validate_every, es, model_save_path)
+                
+                trainer.train()

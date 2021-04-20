@@ -99,7 +99,7 @@ class Logger:
             self.first_write = False
 
     def log(self, epoch, train_loss, val_loss):
-        self.writer.writerow([epoch, train_loss.item(), val_loss.item()])
+        self.writer.writerow([epoch, train_loss, val_loss])
         
     def log_stats(self, TP, FP, TN, FN):
         path = os.path.join('training_logs', f'{self.model_name}_stats.csv')
