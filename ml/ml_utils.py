@@ -106,13 +106,14 @@ class Logger:
         with open(path, 'wt', newline='') as stats_file:
             writer = csv.writer(stats_file, delimiter=',')
             # write header
-            writer.writerow(['TP', 'FP', 'TN', 'FN', 'recall', 'specificity', 'precision', 'F1'])
+            writer.writerow(['TP', 'FP', 'TN', 'FN', 'accuracy', 'recall', 'specificity', 'precision', 'F1'])
             
+            acc = accuracy(TP, FP, TN, FN)
             rec = recall(TP, FN)
             spec = specificity(TN, FP)
             prec = precision(TP, FP)
             F1_score = F1(rec, prec)
-            writer.writerow([TP, FP, TN, FN, rec, spec, prec, F1_score])
+            writer.writerow([TP, FP, TN, FN, acc, rec, spec, prec, F1_score])
     
     def _open(self):
         if self.file is not None and not self.file.closed:
