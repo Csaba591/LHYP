@@ -83,7 +83,8 @@ def train_test_split(axis, pickles_path, test_ids_path, test_percent=0.15):
         num_channels = min(test_ds.num_channels, train_ds.num_channels)
         test_ds.num_channels = num_channels
         train_ds.num_channels = num_channels
-    return train_ds, test_ds
+    
+    return train_ids, train_ds, test_ds
 
 
 class Logger:
@@ -130,3 +131,25 @@ class Logger:
        
     def close(self):
         self.file.close()
+
+def k_fold_train_val_sets(k, path_to_pickles, patient_ids):
+    block_size = len(patient_ids) // k
+    current_block = 1
+    for val_block_start in range(0, k*block_size, block_size):
+        if current_block < k:
+            val_block_end = val_block_start + block_size - 1
+        else: val_block_end = len(patient_ids) - 1
+    
+        train_ids, val_ids = [], []
+        for index, ID in enumerate(patient_ids):
+            if index < val_block_start or index > val_block_end:
+                train_ids.append(ID)
+            else: val_ids.append(ID)
+    
+        current_block += 1
+    
+        train_ds = SADataset(path_to_pickles, train_ids)
+        val_ds = SADataset(path_to_pickles, val_ids)
+    
+        yield train_ds, val_ds
+        

@@ -1,14 +1,12 @@
 import os
 import sys
 import random
-from dataset import SADataset, SALEDataset
 from torchvision.transforms.functional import to_pil_image
-import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, random_split
 import numpy as np
 import torch
-from torch import nn
 import torch.nn.functional as F
+from dataset import *
 from ml_utils import *
 import nets
 import json
@@ -244,8 +242,8 @@ class Trainer:
         
         self.train_set, self.val_set = random_split(self.ds, lengths)
         
-        self.train_loader = DataLoader(self.train_set, batch_size, True)
-        self.val_loader = DataLoader(self.val_set, batch_size, True)
+        self.train_loader = DataLoader(self.train_set, batch_size, sampler=self.train_set.sampler)
+        self.val_loader = DataLoader(self.val_set, batch_size, sampler=self.val_set.sampler)
 
 def save_model(model, optimizer, path):
     full_path = os.path.join(path, model.save_path)
@@ -266,14 +264,21 @@ if __name__ == '__main__':
                 
     
     path = os.path.join('..', '..', 'pickled_samples')
-    train_ds, test_ds = train_test_split('sa', path, 'test2.split', splits['test'])
+    train_ids, train_ds, test_ds = train_test_split('sa', path, 'test2.split', splits['test'])
     
     # for images, label in train_ds:
     #     eprint(images.shape, images.mean(), images.std())
     
     # net = nets.SimpleCNN(train_ds.num_channels, input_shape, 'SimpleCNN')
     # net = nets.Linear(train_ds.num_channels, input_shape, 'SimpleLinear')
-    for batch_size in params["batch_size"]:
+    
+    for i, (train_ds, val_ds) in enumerate(k_fold_train_val_sets(10, path, train_ids)):
+        eprint(len(train_ds))
+        train_ds.print_stats()
+        eprint(len(val_ds))
+        val_ds.print_stats()
+    
+    '''for batch_size in params["batch_size"]:
         for learning_rate in params["learning_rate"]:
             for validate_every in params["validate_every"]:
                 eprint(f'Running with: batch_size: {batch_size}, lr: {learning_rate}, val_every: {validate_every}')
@@ -288,4 +293,4 @@ if __name__ == '__main__':
 
                 trainer = Trainer(net, optim, train_ds, batch_size, validate_every, es, model_save_path)
                 
-                trainer.train()
+                trainer.train()'''
