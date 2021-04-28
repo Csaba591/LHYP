@@ -4,7 +4,7 @@ import sys
 import pickle
 import torch
 import numpy as np
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, WeightedRandomSampler
 from torchvision import transforms, utils
 import torchvision.transforms.functional as TF
 import random
@@ -46,8 +46,14 @@ class SADataset(Dataset):
         width = right - left
         
         return top, left, height, width
-        
+    
+    def print_stats(self):
+        print(self.label_stats, file=sys.stderr)
+    
     def _load_pickles(self, ids):
+        self.label_stats = {}
+        label_counts = [0, 0]
+        
         means = [0]*len(ids)
         
         N = 0
@@ -61,6 +67,22 @@ class SADataset(Dataset):
                 N += len(images) * self.num_frames_per_slice
                 patient.images = images
                 self.data.append(patient)
+                
+                if patient.label in self.label_stats:
+                    self.label_stats[patient.label] += 1
+                else: self.label_stats[patient.label] = 1
+                
+                label = patient.label.lower()
+                if 'u18' in label or 'normal' in label or 'sport' in label:
+                    label_index = 0
+                else: label_index = 1
+                label_counts[label_index] += 1
+        
+        label_weights = [1/x for x in label_counts]
+        self.sampler = WeightedRandomSampler(
+            weights=label_weights, 
+            num_samples=sum(label_counts), 
+            replacement=True)
               
         # calculate mean across all images
         # https://stats.stackexchange.com/a/420075
@@ -103,7 +125,7 @@ class SADataset(Dataset):
         transformed_images_tensor = torch.cat(transformed_images)
         
         label = patient.label.lower()
-        if 'u_' in label or 'normal' in label:
+        if 'u18' in label or 'normal' in label or 'sport' in label:
             label_tensor = torch.Tensor([0])
         else: label_tensor = torch.Tensor([1])
         
