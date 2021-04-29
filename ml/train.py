@@ -26,9 +26,9 @@ validate_every = 4
 lr = 0.001
 batch_size = 4
 splits = {
-    'train': 0.5, 
-    'val': 0.5, 
-    'test': 0.0
+    'train': 0.7, 
+    'val': 0.15, 
+    'test': 0.15
 }
 
 class EarlyStopping:
@@ -72,15 +72,16 @@ class Trainer:
         self, 
         model, 
         optimizer, 
-        dataset, 
+        train_ds,
+        val_ds, 
         batch_size, 
         validate_every, 
         checkpoint_saver=None,
         model_load_path=None):
         
-        self.ds = dataset
         self.model = model
         self.optim = optimizer
+        self.batch_size = batch_size
         self.criterion = F.binary_cross_entropy
         self.validate_every = validate_every
         self.checkpoint_saver = checkpoint_saver
@@ -90,7 +91,7 @@ class Trainer:
         if model_load_path is not None:
             self._load_model(model_load_path)
         
-        self._init_dataset(batch_size)
+        self._init_dataloaders(train_ds, val_ds, batch_size)
     
     def _print_progress(self, epoch, total_epochs, learn_loss, val_loss):
         eprint(f'Epoch [{epoch}/{total_epochs}] - train loss: {learn_loss.item()}', end='')
@@ -121,9 +122,9 @@ class Trainer:
     def train(self):
         eprint('Starting training:')
         eprint('- Epochs:', num_epochs)
-        eprint('- Training samples (w/o aug):', len(self.train_set))
-        eprint('- Validation samples (w/o aug):', len(self.val_set))
-        eprint('- Batch size:', batch_size)
+        eprint('- Training samples (w/o aug):', len(self.train_loader)*self.batch_size, '=', len(self.train_loader), 'batches')
+        eprint('- Validation samples (w/o aug):', len(self.val_loader)*self.batch_size, '=', len(self.val_loader), 'batches')
+        eprint('- Batch size:', self.batch_size)
         
         moving_avg_loss = 0
         for epoch in range(self.epoch, self.epoch+num_epochs):
@@ -132,7 +133,8 @@ class Trainer:
             if epoch % validate_every == 0:
                 moving_avg_loss /= validate_every
                 validation_loss = self.validate()
-                # self._print_progress(epoch, self.epoch+num_epochs, learning_loss, validation_loss)
+                
+                self._print_progress(epoch, self.epoch+num_epochs, learning_loss, validation_loss)
                 self.logger.log(epoch, moving_avg_loss, validation_loss.item())
                 if self.checkpoint_saver is not None and \
                     self.checkpoint_saver(validation_loss, self.model, self.optim, epoch):
@@ -143,8 +145,6 @@ class Trainer:
         self.logger.close()
             
     def learn(self):
-        self.model.train()
-        
         count = 0
         total_loss = 0.0
         for X, y in self.train_loader:
@@ -181,14 +181,20 @@ class Trainer:
                 count += 1
                 
                 # forward
-                output = net(X)
+                output = self.model(X)
                 total_loss += self.criterion(output, y)
         
+        self.model.train()
         return total_loss / count
          
-    def eval(self, data_loader):
+    def eval(self, data_loader=None):
+        if data_loader is None:
+            data_loader = self.val_loader
+        
         self.model.eval()
         TP, FP, TN, FN = 0, 0, 0, 0
+        
+        avgs = {'TP': 0.0, 'FP': 0.0, 'TN': 0.0, 'FN': 0.0}
         
         with torch.no_grad():
             for X, y in data_loader:
@@ -196,7 +202,7 @@ class Trainer:
                 X = X.to(device)
                 y = y.to(device)
                 
-                output = net(X)
+                output = self.model(X)
                 
                 for real_y, out_tensor in zip(y, output):
                     truth = real_y.item() > 0.5
@@ -204,13 +210,27 @@ class Trainer:
                     if prediction == truth:
                         if truth is True:
                             TP += 1
-                        else: TN += 1
+                            avgs['TP'] += out_tensor.item()
+                        else: 
+                            TN += 1
+                            avgs['TN'] += out_tensor.item()
                     else:
                         if truth is False:
                             FP += 1
-                        else: FN += 1
+                            avgs['FP'] += out_tensor.item()
+                        else: 
+                            FN += 1
+                            avgs['FN'] += out_tensor.item()
+        
+        if TP > 0: avgs['TP'] /= TP
+        if FP > 0: avgs['FP'] /= FP
+        if TN > 0: avgs['TN'] /= TN
+        if FN > 0: avgs['FN'] /= FN
+        eprint('Average outputs for validation (0.0 = no such case):')
+        eprint(avgs)
         
         self.logger.log_stats(TP, FP, TN, FN)
+        self.model.train()
       
     def _load_model(self, model_path):
         path = os.path.join(model_path, self.model.save_path)
@@ -232,18 +252,9 @@ class Trainer:
                 self.checkpoint_saver.best_loss = loss
             eprint(f'Model was saved at epoch {epoch} with val loss: {loss}')
         
-    def _init_dataset(self, batch_size):
-        val_len = int(len(self.ds) * splits['val'])
-        train_len = len(self.ds) - val_len
-        assert val_len > 0, '_init_dataset(): val_len can\'t be 0!'
-        assert train_len > 0, '_init_dataset(): train_len can\'t be 0!'
-        
-        lengths = [train_len, val_len]
-        
-        self.train_set, self.val_set = random_split(self.ds, lengths)
-        
-        self.train_loader = DataLoader(self.train_set, batch_size, sampler=self.train_set.sampler)
-        self.val_loader = DataLoader(self.val_set, batch_size, sampler=self.val_set.sampler)
+    def _init_dataloaders(self, train_ds, val_ds, batch_size):
+        self.train_loader = DataLoader(train_ds, batch_size, sampler=train_ds.sampler)
+        self.val_loader = DataLoader(val_ds, batch_size, sampler=val_ds.sampler)
 
 def save_model(model, optimizer, path):
     full_path = os.path.join(path, model.save_path)
@@ -261,36 +272,38 @@ if __name__ == '__main__':
     with open('param_config.json', 'r') as config:
         params = json.load(config)
         
-                
-    
+    axis = 'sa'
     path = os.path.join('..', '..', 'pickled_samples')
-    train_ids, train_ds, test_ds = train_test_split('sa', path, 'test2.split', splits['test'])
+    model_save_path = 'saved_models'
+                
+    train_ids, test_ids = train_test_split_ids(axis, path, 'test2.split', splits['test'])
     
-    # for images, label in train_ds:
-    #     eprint(images.shape, images.mean(), images.std())
+    k = 10
+    dataset_generator = k_fold_train_val_sets(axis, k, path, train_ids)
     
-    # net = nets.SimpleCNN(train_ds.num_channels, input_shape, 'SimpleCNN')
-    # net = nets.Linear(train_ds.num_channels, input_shape, 'SimpleLinear')
-    
-    for i, (train_ds, val_ds) in enumerate(k_fold_train_val_sets(10, path, train_ids)):
-        eprint(len(train_ds))
-        train_ds.print_stats()
-        eprint(len(val_ds))
-        val_ds.print_stats()
-    
-    '''for batch_size in params["batch_size"]:
-        for learning_rate in params["learning_rate"]:
-            for validate_every in params["validate_every"]:
-                eprint(f'Running with: batch_size: {batch_size}, lr: {learning_rate}, val_every: {validate_every}')
+    for block_index, (train_ds, val_ds) in enumerate(dataset_generator):
+        eprint(f'[Cross validation] current val block: {block_index+1}/{k}')
+        for batch_size in params["batch_size"]:
+            for learning_rate in params["learning_rate"]:
+                eprint(f'Running with: batch_size: {batch_size}, lr: {learning_rate}')
                 
                 net = nets.BasicCNN(train_ds.num_channels, input_shape, 'BasicCNN')
                 net.to(device)
                 
                 optim = torch.optim.Adam(params=net.parameters(), lr=learning_rate)
                 
-                model_save_path = 'saved_models'
                 es = EarlyStopping(patience=num_epochs, delta=0.0, model_save_path=model_save_path)
 
-                trainer = Trainer(net, optim, train_ds, batch_size, validate_every, es, model_save_path)
+                trainer = Trainer(
+                    model=net,
+                    optimizer=optim,
+                    train_ds=train_ds,
+                    val_ds=val_ds,
+                    batch_size=batch_size,
+                    validate_every=validate_every,
+                    checkpoint_saver=es,
+                    model_load_path=model_save_path
+                )
                 
-                trainer.train()'''
+                trainer.train()
+                trainer.eval()
