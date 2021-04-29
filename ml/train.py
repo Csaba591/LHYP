@@ -94,10 +94,7 @@ class Trainer:
         self._init_dataloaders(train_ds, val_ds, batch_size)
     
     def _print_progress(self, epoch, total_epochs, learn_loss, val_loss):
-        eprint(f'Epoch [{epoch}/{total_epochs}] - train loss: {learn_loss.item()}', end='')
-        if val_loss is not None:
-            eprint(f' - val loss: {val_loss.item()}')
-        else: eprint()
+        eprint(f'Epoch [{epoch}/{total_epochs}] - train loss: {learn_loss} - val loss: {val_loss}')
      
     def single_batch_test(self):
         X, y = next(iter(self.train_loader))
@@ -134,7 +131,7 @@ class Trainer:
                 moving_avg_loss /= validate_every
                 validation_loss = self.validate()
                 
-                self._print_progress(epoch, self.epoch+num_epochs, moving_avg_loss, validation_loss)
+                self._print_progress(epoch, self.epoch+num_epochs, moving_avg_loss, validation_loss.item())
                 self.logger.log(epoch, moving_avg_loss, validation_loss.item())
                 if self.checkpoint_saver is not None and \
                     self.checkpoint_saver(validation_loss, self.model, self.optim, epoch):
