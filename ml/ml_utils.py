@@ -32,7 +32,7 @@ def accuracy(TP, FP, TN, FN):
     return (TP+TN) / (TP+FP+TN+FN)
 
 def precision(TP, FP):
-    return TP / (TP + FP)
+    return TP / (TP + FP + 1e-5)
 
 def recall(TP, FN):
     ''' True positives / all positives '''

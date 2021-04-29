@@ -134,7 +134,7 @@ class Trainer:
                 moving_avg_loss /= validate_every
                 validation_loss = self.validate()
                 
-                self._print_progress(epoch, self.epoch+num_epochs, learning_loss, validation_loss)
+                self._print_progress(epoch, self.epoch+num_epochs, moving_avg_loss, validation_loss)
                 self.logger.log(epoch, moving_avg_loss, validation_loss.item())
                 if self.checkpoint_saver is not None and \
                     self.checkpoint_saver(validation_loss, self.model, self.optim, epoch):
