@@ -54,6 +54,7 @@ def balanced_accuracy(recall, specificity):
 
 def F1(recall, precision):
     if isnan(recall) or isnan(precision): return nan
+    if recall + precision == 0: return nan
     return 2*(recall * precision) / (recall + precision)
 
 def train_test_split_ids(axis, pickles_path, test_ids_path, test_percent=0.15):
@@ -96,22 +97,15 @@ class Logger:
         self.file = None
         self.first_write = True
         self._open()
-        self.writer = csv.writer(self.file, delimiter=',')
-        # write header
-        if self.first_write:
-            self.writer.writerow(['epoch', 'train loss', 'val loss'])
-            self.first_write = False
 
     def log(self, epoch, train_loss, val_loss):
         self.writer.writerow([epoch, train_loss, val_loss])
         
     def log_stats(self, TP, FP, TN, FN):
         path = os.path.join('training_logs', f'{self.model_name}_stats.csv')
-        first_write = os.path.exists(path)
-        if first_write:
-            stats_file = open(path, 'a', newline='')
-        else: stats_file = open(path, 'wt', newline='')
+        first_write = not os.path.isfile(path)
         
+        stats_file = open(path, 'a', newline='')
         writer = csv.writer(stats_file, delimiter=',')
         if first_write:
             # write header
@@ -121,7 +115,7 @@ class Logger:
         rec = recall(TP, FN)
         spec = specificity(TN, FP)
         prec = precision(TP, FP)
-        b_acc = balanced_accuracy(TP, FP, TN, FN)
+        b_acc = balanced_accuracy(rec, spec)
         F1_score = F1(rec, prec)
         writer.writerow([TP, FP, TN, FN, acc, b_acc, rec, spec, prec, F1_score])
 
@@ -130,15 +124,17 @@ class Logger:
     def _open(self):
         if self.file is not None and not self.file.closed:
             return
+        
+        os.makedirs('training_logs', exist_ok=True)
+        
         path = os.path.join('training_logs', f'{self.model_name}_loss.csv')
-        if not os.path.exists(path):
-            os.makedirs('training_logs', exist_ok=True)
-            self.first_write = True
-            self.file = open(path, 'wt', newline='')
-        else:
-            self.first_write = False
-            self.file = open(path, 'a', newline='')
-    
+        first_write = not os.path.isfile(path)
+        self.file = open(path, 'a', newline='')
+        self.writer = csv.writer(self.file, delimiter=',')
+        if first_write:
+            # write header
+            self.writer.writerow(['epoch', 'train loss', 'val loss'])
+        
        
     def close(self):
         self.file.close()
