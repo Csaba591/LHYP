@@ -45,46 +45,39 @@ def specificity(TN, FP):
 def F1(recall, precision):
     return 2*(recall * precision) / (recall + precision)
 
-def train_test_split(axis, pickles_path, test_ids_path, test_percent=0.15):
+def train_test_split_ids(axis, pickles_path, test_ids_path, test_percent=0.15):
+    '''
+    Split all patient ids into train and test ids.
+    For SALEDataset: make sure to set 
+    num_channels to min(test_ds.num_channels, train_ds.num_channels)
+    '''
     axis_path = os.path.join(pickles_path, axis)
-    all_ids = [pkl.split('.')[-2] for pkl in os.listdir(axis_path)]
+    all_ids = set(pkl.split('.')[-2] for pkl in os.listdir(axis_path))
     
     # get test ids
     # if the test id file exists: read them in
     # else: generate new test ids randomly according to test_percent
     if os.path.exists(test_ids_path):
         with open(test_ids_path, 'rt') as ids:
-            test_ids = ids.read().splitlines()
+            test_ids = set(ids.read().splitlines())
     else:
         if test_percent > 1: test_percent /= 100
         
         # calculate split
         test_len = int(len(all_ids) * test_percent)
+        assert test_len > 0, '0 patients selected for testing! test_percent too small'
         
-        if test_len > 0:
-            # sample test ids from all ids randomly
-            test_ids = random.sample(all_ids, test_len)
-            
-            # save test ids to file
-            with open(test_ids_path, 'wt') as test_ids_file:
-                test_ids_out = '\n'.join(test_ids) + '\n'
-                test_ids_file.write(test_ids_out)
-        else: test_ids = []
-
-    train_ids = [ID for ID in all_ids if ID not in test_ids]
-
-    if len(test_ids) > 0:
-        test_ds = SADataset(pickles_path, test_ids) if axis.lower() == 'sa' else SALEDataset(pickles_path, test_ids)
-    else: test_ds = None
+        # sample test ids from all ids randomly
+        test_ids = set(random.sample(all_ids, test_len))
+        
+        # save test ids to file
+        with open(test_ids_path, 'wt') as test_ids_file:
+            test_ids_out = '\n'.join(test_ids)
+            test_ids_file.write(test_ids_out)
+        
+    train_ids = all_ids - test_ids
     
-    train_ds = SADataset(pickles_path, train_ids) if axis.lower() == 'sa' else SALEDataset(pickles_path, train_ids)
-    
-    if test_ds is not None and axis.lower() == 'sale':
-        num_channels = min(test_ds.num_channels, train_ds.num_channels)
-        test_ds.num_channels = num_channels
-        train_ds.num_channels = num_channels
-    
-    return train_ids, train_ds, test_ds
+    return train_ids, test_ids
 
 
 class Logger:
@@ -132,7 +125,13 @@ class Logger:
     def close(self):
         self.file.close()
 
-def k_fold_train_val_sets(k, path_to_pickles, patient_ids):
+def k_fold_train_val_sets(axis, k, path_to_pickles, patient_ids, sale_test_num_channels=None):
+    assert axis.lower() in ['sa', 'sale'], f'Wrong axis: {axis}'
+
+    axis = axis.lower()
+    if axis == 'sa': assert sale_test_num_channels is None, 'sale_test_num_channels should not be specified for SA'
+    else: assert type(sale_test_num_channels) is int, 'sale_test_num_channels should be specified (as int) for SALE'
+    
     block_size = len(patient_ids) // k
     current_block = 1
     for val_block_start in range(0, k*block_size, block_size):
@@ -148,8 +147,20 @@ def k_fold_train_val_sets(k, path_to_pickles, patient_ids):
     
         current_block += 1
     
-        train_ds = SADataset(path_to_pickles, train_ids)
-        val_ds = SADataset(path_to_pickles, val_ids)
+        if axis == 'sa':
+            train_ds = SADataset(path_to_pickles, train_ids)
+            val_ds = SADataset(path_to_pickles, val_ids)
+        else:
+            train_ds = SALEDataset(path_to_pickles, train_ids)
+            val_ds = SALEDataset(path_to_pickles, val_ids)
+            
+            min_num_channels = min(
+                train_ds.num_channels, 
+                val_ds.num_channels, 
+                sale_test_num_channels)
+            
+            train_ds.num_channels = min_num_channels
+            val_ds.num_channels = min_num_channels
     
         yield train_ds, val_ds
         
