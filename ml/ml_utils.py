@@ -1,5 +1,6 @@
 import sys
 import os
+from math import nan, isnan
 import random
 import numpy as np
 import torch
@@ -32,17 +33,27 @@ def accuracy(TP, FP, TN, FN):
     return (TP+TN) / (TP+FP+TN+FN)
 
 def precision(TP, FP):
-    return TP / (TP + FP + 1e-5)
+    if TP + FP == 0: return nan
+    return TP / (TP + FP)
 
 def recall(TP, FN):
     ''' True positives / all positives '''
-    return TP / (TP + FN + 1e-5)
+    if TP + FN == 0: return nan
+    return TP / (TP + FN)
 
 def specificity(TN, FP):
     ''' True negatives / all negatives '''
-    return TN / (TN + FP + 1e-5)
+    if TN + FP == 0: return nan
+    return TN / (TN + FP)
+
+def balanced_accuracy(recall, specificity):
+    TPR = recall
+    TNR = specificity
+    if isnan(TPR) or isnan(TNR): return nan
+    return (TPR + TNR) / 2
 
 def F1(recall, precision):
+    if isnan(recall) or isnan(precision): return nan
     return 2*(recall * precision) / (recall + precision)
 
 def train_test_split_ids(axis, pickles_path, test_ids_path, test_percent=0.15):
@@ -79,7 +90,6 @@ def train_test_split_ids(axis, pickles_path, test_ids_path, test_percent=0.15):
     
     return train_ids, test_ids
 
-
 class Logger:
     def __init__(self, model_name):
         self.model_name = model_name
@@ -97,17 +107,25 @@ class Logger:
         
     def log_stats(self, TP, FP, TN, FN):
         path = os.path.join('training_logs', f'{self.model_name}_stats.csv')
-        with open(path, 'wt', newline='') as stats_file:
-            writer = csv.writer(stats_file, delimiter=',')
+        first_write = os.path.exists(path)
+        if first_write:
+            stats_file = open(path, 'a', newline='')
+        else: stats_file = open(path, 'wt', newline='')
+        
+        writer = csv.writer(stats_file, delimiter=',')
+        if first_write:
             # write header
-            writer.writerow(['TP', 'FP', 'TN', 'FN', 'accuracy', 'recall', 'specificity', 'precision', 'F1'])
-            
-            acc = accuracy(TP, FP, TN, FN)
-            rec = recall(TP, FN)
-            spec = specificity(TN, FP)
-            prec = precision(TP, FP)
-            F1_score = F1(rec, prec)
-            writer.writerow([TP, FP, TN, FN, acc, rec, spec, prec, F1_score])
+            writer.writerow(['TP', 'FP', 'TN', 'FN', 'accuracy', 'balanced_accuracy', 'recall', 'specificity', 'precision', 'F1'])
+        
+        acc = accuracy(TP, FP, TN, FN)
+        rec = recall(TP, FN)
+        spec = specificity(TN, FP)
+        prec = precision(TP, FP)
+        b_acc = balanced_accuracy(TP, FP, TN, FN)
+        F1_score = F1(rec, prec)
+        writer.writerow([TP, FP, TN, FN, acc, b_acc, rec, spec, prec, F1_score])
+
+        stats_file.close()
     
     def _open(self):
         if self.file is not None and not self.file.closed:
