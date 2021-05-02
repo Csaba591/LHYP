@@ -14,6 +14,12 @@ sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
 from dataset_generator import Patient  
 
+def get_label_binary(pathology) -> int:
+    label =pathology.lower()
+    if 'u18' in label or 'normal' in label or 'sport' in label:
+        return 0
+    return 1
+
 class SADataset(Dataset):
     def __init__(self, path_to_pickles, patient_ids):
         self.path = pjoin(path_to_pickles, 'sa')
@@ -21,8 +27,8 @@ class SADataset(Dataset):
         self.num_frames_per_slice = 6
         
         self.transforms = transforms.Compose([
-            transforms.RandomRotation(180),
-            transforms.RandomPerspective(distortion_scale=0.1, p=0.25)
+            transforms.RandomRotation(45),
+            transforms.RandomPerspective(distortion_scale=0.05, p=0.15)
         ])
         
         self._load_pickles(patient_ids)
@@ -59,18 +65,13 @@ class SADataset(Dataset):
             path = pjoin(self.path, ID+'.pickle')
             with open(path, 'rb') as dump:
                 patient = pickle.load(dump)
-                images = np.array(patient.images)
-                patient.images = images
                 self.data.append(patient)
                 
                 if patient.label in self.label_stats:
                     self.label_stats[patient.label] += 1
                 else: self.label_stats[patient.label] = 1
                 
-                label = patient.label.lower()
-                if 'u18' in label or 'normal' in label or 'sport' in label:
-                    label_index = 0
-                else: label_index = 1
+                label_index = get_label_binary(patient.label)
                 label_counts[label_index] += 1
                 sample_weights[i] = label_index
         
@@ -102,10 +103,7 @@ class SADataset(Dataset):
         
         transformed_images_tensor = torch.cat(transformed_images)
         
-        label = patient.label.lower()
-        if 'u18' in label or 'normal' in label or 'sport' in label:
-            label_tensor = torch.Tensor([0])
-        else: label_tensor = torch.Tensor([1])
+        label_tensor = torch.Tensor([get_label_binary(patient.label)])
         
         return (transformed_images_tensor, label_tensor)
     
@@ -121,27 +119,52 @@ class SALEDataset(Dataset):
         
         self.transforms = transforms.Compose([
             transforms.RandomCrop(int(128*0.8)),
-            transforms.RandomRotation(180),
+            transforms.RandomRotation(45),
             transforms.Resize([128, 128]),
-            transforms.RandomPerspective(distortion_scale=0.1, p=0.25)
+            transforms.RandomPerspective(distortion_scale=0.05, p=0.15)
         ])
         
         self._load_pickles(patient_ids)
     
-    def _transform(self, image_tensor):
+    def _transform(self, image):
+        image_tensor = TF.to_tensor(image)
         image_tensor = TF.resize(image_tensor, [128, 128])
         image_tensor = self.transforms(image_tensor)
         return image_tensor
     
     def _load_pickles(self, ids):
-        for ID in ids:
+        self.label_stats = {}
+        label_counts = [0, 0]
+        sample_weights = [0]*len(ids)
+        
+        for i, ID in enumerate(ids):
             path = pjoin(self.path, ID+'.pickle')
             with open(path, 'rb') as dump:
                 patient = pickle.load(dump)
                 self.data.append(patient)
                 
+                if patient.label in self.label_stats:
+                    self.label_stats[patient.label] += 1
+                else: self.label_stats[patient.label] = 1
+                
                 if self.num_frames_per_sequence is None or len(patient.images) < self.num_frames_per_sequence:
                     self.num_frames_per_sequence = len(patient.images)
+                    
+                label_index = get_label_binary(patient.label)
+                label_counts[label_index] += 1
+                sample_weights[i] = label_index
+    
+        label_weights = [1/x for x in label_counts]
+        for i in range(len(sample_weights)):
+            sample_weights[i] = label_weights[sample_weights[i]]
+    
+        self.sampler = WeightedRandomSampler(
+            weights=sample_weights, 
+            num_samples=len(sample_weights), 
+            replacement=True)
+    
+    def print_stats(self):
+        print(self.label_stats, file=sys.stderr)
     
     def __len__(self):
         return len(self.data)
@@ -159,17 +182,11 @@ class SALEDataset(Dataset):
             
             images = [patient.images[i] for i in indices if i not in exclude]
         
-        image_tensors = [TF.to_tensor(im) for im in images]
-        transformed_images = [
-            self._transform(it) 
-            for it in image_tensors]
+        transformed_images = [self._transform(im) for im in images]
         
         transformed_images_tensor = torch.cat(transformed_images)
         
-        label = patient.label.lower()
-        if 'u_' in label or 'normal' in label:
-            label_tensor = torch.Tensor([0])
-        else: label_tensor = torch.Tensor([1])
+        label_tensor = torch.Tensor([get_label_binary(patient.label)])
         
         return (transformed_images_tensor, label_tensor)
     
