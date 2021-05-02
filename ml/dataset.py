@@ -53,18 +53,13 @@ class SADataset(Dataset):
     def _load_pickles(self, ids):
         self.label_stats = {}
         label_counts = [0, 0]
+        sample_weights = [0]*len(ids)
         
-        means = [0]*len(ids)
-        
-        N = 0
         for i, ID in enumerate(ids):
             path = pjoin(self.path, ID+'.pickle')
             with open(path, 'rb') as dump:
                 patient = pickle.load(dump)
                 images = np.array(patient.images)
-                # images /= 255
-                means[i] = images.mean()
-                N += len(images) * self.num_frames_per_slice
                 patient.images = images
                 self.data.append(patient)
                 
@@ -77,33 +72,16 @@ class SADataset(Dataset):
                     label_index = 0
                 else: label_index = 1
                 label_counts[label_index] += 1
+                sample_weights[i] = label_index
         
         label_weights = [1/x for x in label_counts]
+        for i in range(len(sample_weights)):
+            sample_weights[i] = label_weights[sample_weights[i]]
+                
         self.sampler = WeightedRandomSampler(
-            weights=label_weights, 
-            num_samples=sum(label_counts), 
+            weights=sample_weights, 
+            num_samples=len(sample_weights), 
             replacement=True)
-              
-        # calculate mean across all images
-        # https://stats.stackexchange.com/a/420075
-        global_mean = 0
-        for m, p in zip(means, self.data):
-            global_mean += (len(p.images) / N) * m
-        
-        # calculate std
-        sum_of_deviations = 0
-        K = 0
-        for p in self.data:
-            sum_of_deviations += np.square(p.images - global_mean).sum()
-            K += p.images.size
-        
-        variance = sum_of_deviations / K
-        std = np.sqrt(variance)
-        
-        # standardize
-        # for p in self.data:
-        #     p.images = (p.images - global_mean) / std
-        #     print(p.images.mean(), p.images.std())
     
     def __len__(self):
         return len(self.data)
