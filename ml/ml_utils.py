@@ -178,3 +178,37 @@ def k_fold_train_val_sets(axis, k, path_to_pickles, patient_ids, sale_test_num_c
     
         yield train_ds, val_ds
         
+def create_training_stats_summary(path='training_logs'):
+    out_path = os.path.join(path, 'stats_summary.csv')
+    with open(out_path, 'wt', newline='') as out_file:
+        writer = csv.writer(out_file, delimiter=',')
+        writer.writerow(['model name', 'TP', 'FP', 'TN', 'FN', 'avg accuracy', 'avg balanced_accuracy', 'avg recall', 'avg specificity', 'avg precision', 'avg F1'])
+    
+        for fname in os.listdir(path):
+            if not fname.endswith('stats.csv'): continue
+
+            with open(os.path.join(path, fname), 'rt', newline='') as in_file:
+                reader = csv.reader(in_file, delimiter=',')
+                header = next(reader)
+                data = {i: [] for i in header}
+                for row in reader:
+                    for i, value in enumerate(row):
+                        if value != 'nan':
+                            data[header[i]].append(float(value))
+                for key in data:
+                    if len(data[key]) == 0:
+                        data[key].append(nan)
+
+                writer.writerow([
+                    fname.split('_stats')[0],
+                    int(sum(data['TP'])), 
+                    int(sum(data['FP'])), 
+                    int(sum(data['TN'])), 
+                    int(sum(data['FN'])),
+                    np.mean(data['accuracy']),
+                    np.mean(data['balanced_accuracy']),
+                    np.mean(data['recall']),
+                    np.mean(data['specificity']),
+                    np.mean(data['precision']),
+                    np.mean(data['F1'])
+                ])    
