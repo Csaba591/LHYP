@@ -1,7 +1,6 @@
 import os
 import sys
 import random
-from torchvision.transforms.functional import to_pil_image
 from torch.utils.data import DataLoader, random_split
 import numpy as np
 import torch
@@ -272,11 +271,13 @@ if __name__ == '__main__':
     axis = 'sa'
     path = os.path.join('..', '..', 'pickled_samples')
     model_save_path = 'saved_models'
-                
-    train_ids, test_ids = train_test_split_ids(axis, path, 'test2.split', splits['test'])
+      
+    train_ids, test_ids = train_test_split_ids(axis, path, f'test_{axis}.split', splits['test'])
     
-    k = 10
-    dataset_generator = k_fold_train_val_sets(axis, k, path, train_ids)
+    num_test_channels = None if axis == 'sa' else SALEDataset(path, test_ids).num_channels
+    
+    k = 8
+    dataset_generator = k_fold_train_val_sets(axis, k, path, train_ids, num_test_channels)
     
     for block_index, (train_ds, val_ds) in enumerate(dataset_generator):
         eprint(f'[Cross validation] current val block: {block_index+1}/{k}')
@@ -284,7 +285,8 @@ if __name__ == '__main__':
             for learning_rate in params["learning_rate"]:
                 eprint(f'Running with: batch_size: {batch_size}, lr: {learning_rate}')
                 
-                net = nets.BasicCNN(train_ds.num_channels, input_shape, 'BasicCNN')
+                model_name = f'BasicCNN_bs{batch_size}_lr{learning_rate}'
+                net = nets.BasicCNN(train_ds.num_channels, input_shape, model_name)
                 net.to(device)
                 
                 optim = torch.optim.Adam(params=net.parameters(), lr=learning_rate)
@@ -302,5 +304,5 @@ if __name__ == '__main__':
                     model_load_path=model_save_path
                 )
                 
-                trainer.train()
+                # trainer.train()
                 trainer.eval()
