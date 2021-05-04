@@ -10,16 +10,13 @@ import csv
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
     
-def seed_everything(seed=42):
-    os.environ['PYTHONHASHSEED'] = str(seed)
+def seed_everything(seed=1):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-
+    
 def conv_output_shape(h, w, kernel_size=1, stride=1, pad=0, dilation=1):
     from math import floor
     if type(kernel_size) is not tuple:
