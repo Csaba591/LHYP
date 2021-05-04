@@ -11,24 +11,20 @@ import nets
 import json
 
 # go up one level
-# sys.path.insert(1, os.path.join(sys.path[0], '..'))
 sys.path.append('..')
 
 from dataset_generator import Patient
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
+
+assert torch.cuda.is_available(), 'GPU unavailable'
+
+device = torch.device('cuda')
 
 # hyperparams
 input_shape = (128, 128)
 num_epochs = 50
 validate_every = 4
-lr = 0.001
-batch_size = 4
-splits = {
-    'train': 0.7, 
-    'val': 0.15, 
-    'test': 0.15
-}
 
 class EarlyStopping:
     def __init__(self, patience, delta, model_save_path, verbose=True):
@@ -71,6 +67,7 @@ class Trainer:
         self, 
         model, 
         optimizer, 
+        lr_scheduler,
         train_ds,
         val_ds, 
         batch_size, 
@@ -87,6 +84,8 @@ class Trainer:
         self.epoch = 1
         self.logger = Logger(self.model.name)
         
+        self.lr_scheduler = lr_scheduler
+
         if model_load_path is not None:
             self._load_model(model_load_path)
         
@@ -133,12 +132,12 @@ class Trainer:
                 self._print_progress(epoch, self.epoch+num_epochs, moving_avg_loss, validation_loss.item())
                 self.logger.log(epoch, moving_avg_loss, validation_loss.item())
                 if self.checkpoint_saver is not None and \
-                    self.checkpoint_saver(validation_loss, self.model, self.optim, epoch):
+                    self.checkpoint_saver(
+                        validation_loss, self.model, self.optim, self.lr_scheduler, epoch):
                     
                     eprint('Stopping early at val loss:', validation_loss.item())
                     return
-        
-        self.logger.close()
+                self.lr_scheduler.step(validation_loss)
             
     def learn(self):
         count = 0
@@ -224,8 +223,11 @@ class Trainer:
         if FN > 0: avgs['FN'] /= FN
         eprint('Average outputs for validation (0.0 = no such case):')
         eprint(avgs)
-        
+
+        eprint(TP, FP, TN, FN)
         self.logger.log_stats(TP, FP, TN, FN)
+        self.logger.close()
+
         self.model.train()
       
     def _load_model(self, model_path):
@@ -237,7 +239,8 @@ class Trainer:
         
         self.model.load_state_dict(data['model_state_dict'])
         self.optim.load_state_dict(data['optimizer_state_dict'])
-        
+        self.lr_scheduler.load_state_dict(data['lr_scheduler_state_dict'])
+
         model_name = data['model_name']
         eprint(f'Loaded model \"{model_name}\"!')
         
@@ -252,57 +255,64 @@ class Trainer:
         self.train_loader = DataLoader(train_ds, batch_size, sampler=train_ds.sampler)
         self.val_loader = DataLoader(val_ds, batch_size, sampler=val_ds.sampler)
 
-def save_model(model, optimizer, path):
-    full_path = os.path.join(path, model.save_path)
-    os.makedirs(path, exist_ok=True)
-    
-    torch.save({
-        'model_name': model.name,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict()
-    }, full_path)
+def create_model(model_type, in_channels, input_shape, name):
+    mt = model_type.lower()
+    if mt == 'resnet18':
+        return nets.ResNet(in_channels, input_shape, [2,2,2,2], name)
+    elif mt == 'resnet34':
+        return nets.ResNet(in_channels, input_shape, [3, 4, 6, 3], name)
+    elif mt == 'dropoutcnn': 
+        return nets.DropoutCNN(in_channels, input_shape, name)
+    elif mt == 'maxpoolcnn': 
+        return nets.MaxpoolCNN(in_channels, input_shape, name)
+    else:
+        raise ValueError(f'Unknown model type \"{model_type}\"')
 
 if __name__ == '__main__':
-    # seed_everything(2222222222)
+    seed_everything()
     
     with open('param_config.json', 'r') as config:
         params = json.load(config)
+        num_epochs = params['epochs']
+        axis = params['axis']
         
-    axis = 'sa'
     path = os.path.join('..', '..', 'pickled_samples')
     model_save_path = 'saved_models'
       
-    train_ids, test_ids = train_test_split_ids(axis, path, f'test_{axis}.split', splits['test'])
+    train_ids, test_ids = train_test_split_ids(axis, path, f'test_{axis}.split', test_percent=0.15)
     
     num_test_channels = None if axis == 'sa' else SALEDataset(path, test_ids).num_channels
     
     k = 8
     dataset_generator = k_fold_train_val_sets(axis, k, path, train_ids, num_test_channels)
-    
+
     for block_index, (train_ds, val_ds) in enumerate(dataset_generator):
         eprint(f'[Cross validation] current val block: {block_index+1}/{k}')
         for batch_size in params["batch_size"]:
             for learning_rate in params["learning_rate"]:
-                eprint(f'Running with: batch_size: {batch_size}, lr: {learning_rate}')
+                for model_type in params["model"]:
+                    eprint(f'Running with: batch_size: {batch_size}, lr: {learning_rate}')
+                    
+                    model_name = f'{model_type}_bs{batch_size}_lr{learning_rate}_{axis}'
+                    net = create_model(model_type, train_ds.num_channels, input_shape, model_name)
+                    net.to(device)
+                    
+                    optim = torch.optim.Adam(params=net.parameters(), lr=learning_rate)
+                    es = EarlyStopping(patience=40, delta=0.0, model_save_path=model_save_path)
+                    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                                                    optim, patience=es.patience//3, verbose=True)
+                    
+                    trainer = Trainer(
+                        model=net,
+                        optimizer=optim,
+                        lr_scheduler=lr_scheduler,
+                        train_ds=train_ds,
+                        val_ds=val_ds,
+                        batch_size=batch_size,
+                        validate_every=validate_every,
+                        checkpoint_saver=es,
+                        model_load_path=model_save_path
+                    )
                 
-                model_name = f'BasicCNN_bs{batch_size}_lr{learning_rate}'
-                net = nets.BasicCNN(train_ds.num_channels, input_shape, model_name)
-                net.to(device)
-                
-                optim = torch.optim.Adam(params=net.parameters(), lr=learning_rate)
-                
-                es = EarlyStopping(patience=num_epochs, delta=0.0, model_save_path=model_save_path)
-
-                trainer = Trainer(
-                    model=net,
-                    optimizer=optim,
-                    train_ds=train_ds,
-                    val_ds=val_ds,
-                    batch_size=batch_size,
-                    validate_every=validate_every,
-                    checkpoint_saver=es,
-                    model_load_path=model_save_path
-                )
-                
-                # trainer.train()
-                trainer.eval()
+                    trainer.train()
+                    trainer.eval()
