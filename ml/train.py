@@ -316,3 +316,5 @@ if __name__ == '__main__':
                 
                     trainer.train()
                     trainer.eval()
+
+    create_training_stats_summary()
