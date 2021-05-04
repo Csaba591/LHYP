@@ -35,11 +35,11 @@ class EarlyStopping:
         self.path = model_save_path
         self.verbose = verbose
         
-    def __call__(self, val_loss, model, optimizer, epoch):
+    def __call__(self, val_loss, model, optimizer, lr_scheduler, epoch):
         loss = val_loss.item()
         if self.best_loss is None or loss <= self.best_loss - self.delta:
             self.best_loss = loss
-            self._save_checkpoint(model, optimizer, epoch)
+            self._save_checkpoint(model, optimizer, lr_scheduler, epoch)
             self.patience_counter = 0
             return False
         
@@ -48,7 +48,7 @@ class EarlyStopping:
             return True
         return False
     
-    def _save_checkpoint(self, model, optimizer, epoch):
+    def _save_checkpoint(self, model, optimizer, lr_scheduler, epoch):
         os.makedirs(self.path, exist_ok=True)
         path = os.path.join(self.path, model.save_path)
         if self.verbose:
@@ -59,6 +59,7 @@ class EarlyStopping:
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
+            'lr_scheduler_state_dict': lr_scheduler.state_dict(),
             'val_loss': self.best_loss
         }, path)
 
