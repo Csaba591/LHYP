@@ -1,5 +1,6 @@
 {
     "axis": "sa",
+    "CV": true,
     "batch_size": [164, 256],
     "learning_rate": [0.01, 0.001],
     "epochs": 200,
