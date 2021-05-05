@@ -276,6 +276,7 @@ if __name__ == '__main__':
         params = json.load(config)
         num_epochs = params['epochs']
         axis = params['axis']
+        cross_validating = params['CV']
         
     path = os.path.join('..', '..', 'pickled_samples')
       
@@ -283,14 +284,17 @@ if __name__ == '__main__':
     
     num_test_channels = None if axis == 'sa' else SALEDataset(path, test_ids).num_channels
     
-    k = 8
-    dataset_generator = k_fold_train_val_sets(axis, k, path, train_ids, num_test_channels)
-    cross_validating = True
-    
-    model_save_path = None if cross_validating else 'saved_models'
+    if cross_validating:
+        k = 8
+        dataset_generator = k_fold_train_val_sets(axis, k, path, train_ids, num_test_channels)
+        model_save_path = None
+    else: 
+        dataset_generator = train_val_sets(axis, 0.15, path, train_ids, num_test_channels)
+        model_save_path = 'saved_models'
     
     for block_index, (train_ds, val_ds) in enumerate(dataset_generator):
-        eprint(f'[Cross validation] current val block: {block_index+1}/{k}')
+        if cross_validating:
+            eprint(f'[Cross validation] current val block: {block_index+1}/{k}')
         for batch_size in params["batch_size"]:
             for learning_rate in params["learning_rate"]:
                 for model_type in params["model"]:
@@ -301,10 +305,12 @@ if __name__ == '__main__':
                     net.to(device)
                     
                     optim = torch.optim.Adam(params=net.parameters(), lr=learning_rate)
+                    
+                    es_patience = 40
                     es = None if cross_validating \
-                        else EarlyStopping(patience=40, delta=0.0, model_save_path=model_save_path)
+                        else EarlyStopping(patience=es_patience, delta=0.0, model_save_path=model_save_path)
                     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                                                    optim, patience=es.patience//3, verbose=True)
+                                                    optim, patience=es_patience//4, verbose=True)
                     
                     trainer = Trainer(
                         model=net,
