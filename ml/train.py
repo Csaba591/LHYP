@@ -278,7 +278,6 @@ if __name__ == '__main__':
         axis = params['axis']
         
     path = os.path.join('..', '..', 'pickled_samples')
-    model_save_path = 'saved_models'
       
     train_ids, test_ids = train_test_split_ids(axis, path, f'test_{axis}.split', test_percent=0.15)
     
@@ -286,7 +285,10 @@ if __name__ == '__main__':
     
     k = 8
     dataset_generator = k_fold_train_val_sets(axis, k, path, train_ids, num_test_channels)
-
+    cross_validating = True
+    
+    model_save_path = None if cross_validating else 'saved_models'
+    
     for block_index, (train_ds, val_ds) in enumerate(dataset_generator):
         eprint(f'[Cross validation] current val block: {block_index+1}/{k}')
         for batch_size in params["batch_size"]:
@@ -299,7 +301,8 @@ if __name__ == '__main__':
                     net.to(device)
                     
                     optim = torch.optim.Adam(params=net.parameters(), lr=learning_rate)
-                    es = EarlyStopping(patience=40, delta=0.0, model_save_path=model_save_path)
+                    es = None if cross_validating \
+                        else EarlyStopping(patience=40, delta=0.0, model_save_path=model_save_path)
                     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                                                     optim, patience=es.patience//3, verbose=True)
                     
