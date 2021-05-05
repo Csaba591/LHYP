@@ -1,11 +1,12 @@
 import sys
 import os
-from math import nan, isnan
+from math import nan, isnan, ceil
 import random
 import numpy as np
 import torch
-from dataset import SADataset, SALEDataset
+from dataset import SADataset, SALEDataset, get_label_binary
 import csv
+import pickle
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
@@ -136,6 +137,24 @@ class Logger:
     def close(self):
         self.file.close()
 
+def ids_to_datasets(axis, path_to_pickles, train_ids, val_ids, sale_test_num_channels):
+    if axis == 'sa':
+        train_ds = SADataset(path_to_pickles, train_ids)
+        val_ds = SADataset(path_to_pickles, val_ids)
+    else:
+        train_ds = SALEDataset(path_to_pickles, train_ids)
+        val_ds = SALEDataset(path_to_pickles, val_ids)
+        
+        min_num_channels = min(
+            train_ds.num_channels, 
+            val_ds.num_channels, 
+            sale_test_num_channels)
+        
+        train_ds.num_channels = min_num_channels
+        val_ds.num_channels = min_num_channels
+
+    return train_ds, val_ds
+
 def k_fold_train_val_sets(axis, k, path_to_pickles, patient_ids, sale_test_num_channels=None):
     assert axis.lower() in ['sa', 'sale'], f'Wrong axis: {axis}'
 
@@ -158,23 +177,62 @@ def k_fold_train_val_sets(axis, k, path_to_pickles, patient_ids, sale_test_num_c
     
         current_block += 1
     
-        if axis == 'sa':
-            train_ds = SADataset(path_to_pickles, train_ids)
-            val_ds = SADataset(path_to_pickles, val_ids)
-        else:
-            train_ds = SALEDataset(path_to_pickles, train_ids)
-            val_ds = SALEDataset(path_to_pickles, val_ids)
-            
-            min_num_channels = min(
-                train_ds.num_channels, 
-                val_ds.num_channels, 
-                sale_test_num_channels)
-            
-            train_ds.num_channels = min_num_channels
-            val_ds.num_channels = min_num_channels
+        train_ds, val_ds = ids_to_datasets(axis, path_to_pickles, train_ids, val_ids, sale_test_num_channels)
     
         yield train_ds, val_ds
+
+def train_val_sets(axis, val_percent, path_to_pickles, patient_ids, sale_test_num_channels=None):
+    assert axis.lower() in ['sa', 'sale'], f'Wrong axis: {axis}'
+    
+    axis = axis.lower()
+    if axis == 'sa': assert sale_test_num_channels is None, 'sale_test_num_channels should not be specified for SA'
+    else: assert type(sale_test_num_channels) is int, 'sale_test_num_channels should be specified (as int) for SALE'
+
+    patient_ids = set(patient_ids)
+    
+    axis_path = os.path.join(path_to_pickles, axis)
+    save_path = f'val_{axis}.split'
+    
+    if os.path.exists(save_path):
+        with open(save_path, 'rt') as saved_val_ids:
+            val_ids = set(saved_val_ids.readlines())
+        train_ids = patient_ids - val_ids
+    
+        train_ds, val_ds = ids_to_datasets(axis, path_to_pickles, train_ids, val_ids, sale_test_num_channels)
         
+        yield train_ds, val_ds
+    
+    else:
+        if val_percent > 1: val_percent /= 100
+        num_val_samples = ceil(len(patient_ids) * val_percent)
+        num_train_samples = len(patient_ids) - num_val_samples
+        
+        # Sample validation samples with the global label ratio 
+        label_counts = [0, 0]
+        patients_by_label = { 0: [], 1: [] }
+        for ID in patient_ids:
+            path = os.path.join(axis_path, ID+'.pickle')
+            with open(path, 'rb') as dump:
+                patient = pickle.load(dump)
+                label = get_label_binary(patient.label)
+                label_counts[label] += 1
+                patients_by_label[label].append(patient.id)
+        
+        val_label_counts = [ceil(c * val_percent) for c in label_counts]
+        val_ids = set()
+        for i in range(len(val_label_counts)):
+            val_ids.update(random.sample(patients_by_label[i], val_label_counts[i]))
+        
+        with open(save_path, 'wt') as save_file:
+            output = '\n'.join(val_ids)
+            save_file.write(output)
+        
+        train_ids = set(patient_ids) - val_ids
+        
+        train_ds, val_ds = ids_to_datasets(axis, path_to_pickles, train_ids, val_ids, sale_test_num_channels)
+        
+        yield train_ds, val_ds
+    
 def create_training_stats_summary(path='training_logs'):
     out_path = os.path.join(path, 'stats_summary.csv')
     with open(out_path, 'wt', newline='') as out_file:
