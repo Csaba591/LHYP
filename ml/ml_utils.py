@@ -195,7 +195,7 @@ def train_val_sets(axis, val_percent, path_to_pickles, patient_ids, sale_test_nu
     
     if os.path.exists(save_path):
         with open(save_path, 'rt') as saved_val_ids:
-            val_ids = set(saved_val_ids.readlines())
+            val_ids = set(saved_val_ids.read().splitlines())
         train_ids = patient_ids - val_ids
     
         train_ds, val_ds = ids_to_datasets(axis, path_to_pickles, train_ids, val_ids, sale_test_num_channels)
