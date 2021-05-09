@@ -308,7 +308,7 @@ if __name__ == '__main__':
                     
                     optim = torch.optim.Adam(params=net.parameters(), lr=learning_rate)
                     
-                    es_patience = 40
+                    es_patience = 40 if cross_validating else 100
                     es = None if cross_validating \
                         else EarlyStopping(patience=es_patience, delta=0.0, model_save_path=model_save_path)
                     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
