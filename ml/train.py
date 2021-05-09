@@ -1,4 +1,3 @@
-from dataset_generator import Patient
 import os
 import sys
 import random
@@ -14,6 +13,7 @@ import json
 # go up one level
 sys.path.append('..')
 
+from dataset_generator import Patient
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
