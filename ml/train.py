@@ -270,20 +270,6 @@ class Trainer:
             val_ds, batch_size, sampler=val_ds.sampler)
 
 
-def create_model(model_type, in_channels, input_shape, name):
-    mt = model_type.lower()
-    if mt == 'resnet18':
-        return nets.ResNet(in_channels, input_shape, [2, 2, 2, 2], name)
-    elif mt == 'resnet34':
-        return nets.ResNet(in_channels, input_shape, [3, 4, 6, 3], name)
-    elif mt == 'dropoutcnn':
-        return nets.DropoutCNN(in_channels, input_shape, name)
-    elif mt == 'maxpoolcnn':
-        return nets.MaxpoolCNN(in_channels, input_shape, name)
-    else:
-        raise ValueError(f'Unknown model type \"{model_type}\"')
-
-
 if __name__ == '__main__':
     seed_everything()
 
@@ -322,18 +308,19 @@ if __name__ == '__main__':
                         f'Running with: batch_size: {batch_size}, lr: {learning_rate}')
 
                     model_name = f'{model_type}_bs{batch_size}_lr{learning_rate}_{axis}'
-                    net = create_model(
-                        model_type, train_ds.num_channels, input_shape, model_name)
+
+                    net = nets.create_model(
+                        model_type, train_ds.num_channels, input_shape, name)
                     net.to(device)
 
                     optim = torch.optim.Adam(
                         params=net.parameters(), lr=learning_rate)
 
-                    es_patience = 40 if cross_validating else 100
+                    es_patience = 40 if cross_validating else 160
                     es = None if cross_validating \
                         else EarlyStopping(patience=es_patience, delta=0.0, model_save_path=model_save_path)
                     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                        optim, patience=es_patience//4, verbose=True)
+                        optim, patience=es_patience//8, verbose=True)
 
                     trainer = Trainer(
                         model=net,
