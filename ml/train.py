@@ -71,6 +71,7 @@ class Trainer:
         lr_scheduler,
         train_ds,
         val_ds, 
+        num_epochs, 
         batch_size, 
         validate_every, 
         checkpoint_saver=None,
@@ -86,6 +87,7 @@ class Trainer:
         self.logger = Logger(self.model.name)
         
         self.lr_scheduler = lr_scheduler
+        self.num_epochs = num_epochs
 
         if model_load_path is not None:
             self._load_model(model_load_path)
@@ -102,12 +104,12 @@ class Trainer:
         X = X.to(device)
         y = y.to(device)
         
-        for epoch in range(num_epochs):
+        for epoch in range(self.num_epochs):
             # forward
             output = self.model(X)
             loss = self.criterion(output, y)
             
-            self._print_progress(epoch, num_epochs, loss, None)
+            self._print_progress(epoch, self.num_epochs, loss, None)
             
             # backward
             self.optim.zero_grad()
@@ -117,20 +119,20 @@ class Trainer:
     
     def train(self):
         eprint('Starting training:')
-        eprint('- Epochs:', num_epochs)
+        eprint('- Epochs:', self.num_epochs)
         eprint('- Training samples (w/o aug):', len(self.train_loader)*self.batch_size, '=', len(self.train_loader), 'batches')
         eprint('- Validation samples (w/o aug):', len(self.val_loader)*self.batch_size, '=', len(self.val_loader), 'batches')
         eprint('- Batch size:', self.batch_size)
         
         moving_avg_loss = 0
-        for epoch in range(self.epoch, self.epoch+num_epochs):
+        for epoch in range(self.epoch, self.epoch+self.num_epochs):
             learning_loss = self.learn()
             moving_avg_loss += learning_loss.item()
             if epoch % validate_every == 0:
                 moving_avg_loss /= validate_every
                 validation_loss = self.validate()
                 
-                self._print_progress(epoch, self.epoch+num_epochs, moving_avg_loss, validation_loss.item())
+                self._print_progress(epoch, self.epoch+self.num_epochs, moving_avg_loss, validation_loss.item())
                 self.logger.log(epoch, moving_avg_loss, validation_loss.item())
                 if self.checkpoint_saver is not None and \
                     self.checkpoint_saver(
@@ -317,7 +319,8 @@ if __name__ == '__main__':
                         optimizer=optim,
                         lr_scheduler=lr_scheduler,
                         train_ds=train_ds,
-                        val_ds=val_ds,
+                        val_ds=val_ds, 
+                        num_epochs=num_epochs, 
                         batch_size=batch_size,
                         validate_every=validate_every,
                         checkpoint_saver=es,
