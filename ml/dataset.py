@@ -15,31 +15,40 @@ sys.path.insert(1, os.path.join(sys.path[0], '..'))
 from dataset_generator import Patient  
 
 def get_label_binary(pathology) -> int:
-    label =pathology.lower()
+    label = pathology.lower()
     if 'u18' in label or 'normal' in label or 'sport' in label:
         return 0
     return 1
 
+avg_std = np.mean([0.229, 0.224, 0.225])
+avg_mean = np.mean([0.485, 0.456, 0.406])
+
 class SADataset(Dataset):
-    def __init__(self, path_to_pickles, patient_ids):
+    def __init__(self, path_to_pickles, patient_ids, for_training=True, image_size=(128, 128)):
         self.path = pjoin(path_to_pickles, 'sa')
         self.data = []
         self.num_frames_per_slice = 6
-        
+        self.should_augment = for_training
+        self.im_size = image_size
+
         self.transforms = transforms.Compose([
             transforms.RandomRotation(45),
             transforms.RandomPerspective(distortion_scale=0.05, p=0.15)
         ])
         
-        self._load_pickles(patient_ids)
+        self._load_pickles(patient_ids, for_training)
     
     def _transform(self, image_tensor, ROI, padding=2):
-        img_h, img_w = image_tensor.shape[-1], image_tensor.shape[-2]
+        img_h, img_w = image_tensor.shape[-2], image_tensor.shape[-1]
         cutout = self._calculate_roi_cutout(img_w, img_h, ROI, padding)
         
         image_tensor = TF.crop(image_tensor, *cutout)
-        image_tensor = TF.resize(image_tensor, [128, 128])
-        image_tensor = self.transforms(image_tensor)
+        
+        if self.should_augment:
+            image_tensor = self.transforms(image_tensor)
+        
+        image_tensor = TF.resize(image_tensor, self.im_size)
+        image_tensor = TF.normalize(image_tensor, mean=avg_mean, std=avg_std)
         return image_tensor
     
     def _calculate_roi_cutout(self, img_h, img_w, ROI, padding):
@@ -56,7 +65,7 @@ class SADataset(Dataset):
     def print_stats(self):
         print(self.label_stats, file=sys.stderr)
     
-    def _load_pickles(self, ids):
+    def _load_pickles(self, ids, for_training):
         self.label_stats = {}
         label_counts = [0, 0]
         sample_weights = [0]*len(ids)
@@ -75,14 +84,16 @@ class SADataset(Dataset):
                 label_counts[label_index] += 1
                 sample_weights[i] = label_index
         
-        label_weights = [1/x for x in label_counts]
-        for i in range(len(sample_weights)):
-            sample_weights[i] = label_weights[sample_weights[i]]
-                
-        self.sampler = WeightedRandomSampler(
-            weights=sample_weights, 
-            num_samples=len(sample_weights), 
-            replacement=True)
+        self.sampler = None
+        if for_training:
+            label_weights = [1/x for x in label_counts]
+            for i in range(len(sample_weights)):
+                sample_weights[i] = label_weights[sample_weights[i]]
+                    
+            self.sampler = WeightedRandomSampler(
+                weights=sample_weights, 
+                num_samples=len(sample_weights), 
+                replacement=True)
     
     def __len__(self):
         return len(self.data)
@@ -103,7 +114,9 @@ class SADataset(Dataset):
         
         transformed_images_tensor = torch.cat(transformed_images)
         
-        label_tensor = torch.Tensor([get_label_binary(patient.label)])
+        label = get_label_binary(patient.label)
+        # if label == 0: label = -1
+        label_tensor = torch.Tensor([label])
         
         return (transformed_images_tensor, label_tensor)
     
@@ -112,27 +125,33 @@ class SADataset(Dataset):
         return self.num_frames_per_slice
     
 class SALEDataset(Dataset):
-    def __init__(self, path_to_pickles, patient_ids):
+    def __init__(self, path_to_pickles, patient_ids, for_training=True, image_size=(128, 128)):
         self.path = pjoin(path_to_pickles, 'sale')
         self.num_frames_per_sequence = None
         self.data = []
+        self.should_augment = for_training
+        self.im_size = image_size
         
         self.transforms = transforms.Compose([
-            transforms.RandomCrop(int(128*0.8)),
             transforms.RandomRotation(45),
-            transforms.Resize([128, 128]),
             transforms.RandomPerspective(distortion_scale=0.05, p=0.15)
         ])
         
-        self._load_pickles(patient_ids)
+        self._load_pickles(patient_ids, for_training)
     
     def _transform(self, image):
         image_tensor = TF.to_tensor(image)
-        image_tensor = TF.resize(image_tensor, [128, 128])
-        image_tensor = self.transforms(image_tensor)
+        
+        if self.should_augment:
+            crop = transforms.RandomCrop(int(image_tensor.shape[-1]*0.8))
+            image_tensor = crop(image_tensor)
+            image_tensor = self.transforms(image_tensor)
+
+        image_tensor = TF.resize(image_tensor, self.im_size)
+        image_tensor = TF.normalize(image_tensor, mean=avg_mean, std=avg_std)
         return image_tensor
     
-    def _load_pickles(self, ids):
+    def _load_pickles(self, ids, for_training):
         self.label_stats = {}
         label_counts = [0, 0]
         sample_weights = [0]*len(ids)
@@ -154,15 +173,17 @@ class SALEDataset(Dataset):
                 label_counts[label_index] += 1
                 sample_weights[i] = label_index
     
-        label_weights = [1/x for x in label_counts]
-        for i in range(len(sample_weights)):
-            sample_weights[i] = label_weights[sample_weights[i]]
+        self.sampler = None
+        if for_training:
+            label_weights = [1/x for x in label_counts]
+            for i in range(len(sample_weights)):
+                sample_weights[i] = label_weights[sample_weights[i]]
     
-        self.sampler = WeightedRandomSampler(
-            weights=sample_weights, 
-            num_samples=len(sample_weights), 
-            replacement=True)
-    
+            self.sampler = WeightedRandomSampler(
+                weights=sample_weights, 
+                num_samples=len(sample_weights), 
+                replacement=True)
+        
     def print_stats(self):
         print(self.label_stats, file=sys.stderr)
     

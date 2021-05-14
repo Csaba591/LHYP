@@ -55,6 +55,17 @@ def F1(recall, precision):
     if recall + precision == 0: return nan
     return 2*(recall * precision) / (recall + precision)
 
+def get_patients_by_label(axis_path, patient_ids):
+    patients_by_label = { 0: [], 1: [] }
+    for ID in patient_ids:
+        path = os.path.join(axis_path, ID+'.pickle')
+        with open(path, 'rb') as dump:
+            patient = pickle.load(dump)
+            label = get_label_binary(patient.label)
+            patients_by_label[label].append(patient.id)
+    
+    return patients_by_label
+
 def train_test_split_ids(axis, pickles_path, test_ids_path, test_percent=0.15):
     '''
     Split all patient ids into train and test ids.
@@ -62,14 +73,14 @@ def train_test_split_ids(axis, pickles_path, test_ids_path, test_percent=0.15):
     num_channels to min(test_ds.num_channels, train_ds.num_channels)
     '''
     axis_path = os.path.join(pickles_path, axis)
-    all_ids = set(pkl.split('.')[-2] for pkl in os.listdir(axis_path))
+    all_ids = [pkl.split('.')[-2] for pkl in os.listdir(axis_path)]
     
     # get test ids
     # if the test id file exists: read them in
     # else: generate new test ids randomly according to test_percent
     if os.path.exists(test_ids_path):
         with open(test_ids_path, 'rt') as ids:
-            test_ids = set(ids.read().splitlines())
+            test_ids = ids.read().splitlines()
     else:
         if test_percent > 1: test_percent /= 100
         
@@ -77,16 +88,27 @@ def train_test_split_ids(axis, pickles_path, test_ids_path, test_percent=0.15):
         test_len = int(len(all_ids) * test_percent)
         assert test_len > 0, '0 patients selected for testing! test_percent too small'
         
-        # sample test ids from all ids randomly
-        test_ids = set(random.sample(all_ids, test_len))
+        patients_by_label = get_patients_by_label(axis_path, all_ids)
+        label_counts = [len(IDS) for IDS in patients_by_label.values()]
+        test_label_counts = [ceil(c * test_percent) for c in label_counts]
         
+        # sample ids with respect to label distribution 
+        # among all patients
+        test_ids = []
+        for i in range(len(test_label_counts)):
+            new_test_ids = random.sample(patients_by_label[i], test_label_counts[i])
+            test_ids.extend(new_test_ids)
+                
         # save test ids to file
         with open(test_ids_path, 'wt') as test_ids_file:
             test_ids_out = '\n'.join(test_ids)
             test_ids_file.write(test_ids_out)
         
-    train_ids = all_ids - test_ids
+    train_ids = [ID for ID in all_ids if ID not in test_ids]
     
+    eprint('# test patients:', len(test_ids))
+    eprint('# patients left for training:', len(train_ids))
+
     return train_ids, test_ids
 
 class Logger:
@@ -138,12 +160,17 @@ class Logger:
         self.file.close()
 
 def ids_to_datasets(axis, path_to_pickles, train_ids, val_ids, sale_test_num_channels):
+    input_size = (224, 224)
     if axis == 'sa':
-        train_ds = SADataset(path_to_pickles, train_ids)
-        val_ds = SADataset(path_to_pickles, val_ids)
+        train_ds = SADataset(
+            path_to_pickles, train_ids, image_size=input_size)
+        val_ds = SADataset(
+            path_to_pickles, val_ids, for_training=False, image_size=input_size)
     else:
-        train_ds = SALEDataset(path_to_pickles, train_ids)
-        val_ds = SALEDataset(path_to_pickles, val_ids)
+        train_ds = SALEDataset(
+            path_to_pickles, train_ids, image_size=input_size)
+        val_ds = SALEDataset(
+            path_to_pickles, val_ids, for_training=False, image_size=input_size)
         
         min_num_channels = min(
             train_ds.num_channels, 
@@ -188,50 +215,37 @@ def train_val_sets(axis, val_percent, path_to_pickles, patient_ids, sale_test_nu
     if axis == 'sa': assert sale_test_num_channels is None, 'sale_test_num_channels should not be specified for SA'
     else: assert type(sale_test_num_channels) is int, 'sale_test_num_channels should be specified (as int) for SALE'
 
-    patient_ids = set(patient_ids)
-    
     axis_path = os.path.join(path_to_pickles, axis)
     save_path = f'val_{axis}.split'
     
     if os.path.exists(save_path):
+        eprint('Loading saved val sets...')
         with open(save_path, 'rt') as saved_val_ids:
-            val_ids = set(saved_val_ids.read().splitlines())
-        train_ids = patient_ids - val_ids
-    
-        train_ds, val_ds = ids_to_datasets(axis, path_to_pickles, train_ids, val_ids, sale_test_num_channels)
-        
-        yield train_ds, val_ds
-    
+            val_ids = saved_val_ids.read().splitlines()
+
     else:
         if val_percent > 1: val_percent /= 100
         num_val_samples = ceil(len(patient_ids) * val_percent)
         num_train_samples = len(patient_ids) - num_val_samples
         
-        # Sample validation samples with the global label ratio 
-        label_counts = [0, 0]
-        patients_by_label = { 0: [], 1: [] }
-        for ID in patient_ids:
-            path = os.path.join(axis_path, ID+'.pickle')
-            with open(path, 'rb') as dump:
-                patient = pickle.load(dump)
-                label = get_label_binary(patient.label)
-                label_counts[label] += 1
-                patients_by_label[label].append(patient.id)
-        
+        patients_by_label = get_patients_by_label(axis_path, patient_ids)
+        label_counts = [len(IDS) for IDS in patients_by_label.values()]
         val_label_counts = [ceil(c * val_percent) for c in label_counts]
-        val_ids = set()
+        
+        val_ids = []
         for i in range(len(val_label_counts)):
-            val_ids.update(random.sample(patients_by_label[i], val_label_counts[i]))
+            val_ids.extend(random.sample(patients_by_label[i], val_label_counts[i]))
         
         with open(save_path, 'wt') as save_file:
             output = '\n'.join(val_ids)
             save_file.write(output)
         
-        train_ids = set(patient_ids) - val_ids
+    
+    train_ids = [ID for ID in patient_ids if ID not in val_ids]
+    
+    train_ds, val_ds = ids_to_datasets(axis, path_to_pickles, train_ids, val_ids, sale_test_num_channels)
         
-        train_ds, val_ds = ids_to_datasets(axis, path_to_pickles, train_ids, val_ids, sale_test_num_channels)
-        
-        yield train_ds, val_ds
+    yield train_ds, val_ds
     
 def create_training_stats_summary(path='training_logs'):
     out_path = os.path.join(path, 'stats_summary.csv')

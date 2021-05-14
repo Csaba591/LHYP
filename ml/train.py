@@ -22,8 +22,7 @@ assert torch.cuda.is_available(), 'GPU unavailable'
 device = torch.device('cuda')
 
 # hyperparams
-input_shape = (128, 128)
-num_epochs = 50
+input_shape = (224, 224)
 validate_every = 4
 
 
@@ -37,7 +36,8 @@ class EarlyStopping:
         self.verbose = verbose
 
     def __call__(self, loss, model, optimizer, lr_scheduler, epoch):
-        if self.best_loss is None or loss <= self.best_loss - self.delta:
+        loss = abs(loss)
+        if self.best_loss is None or loss < self.best_loss - self.delta:
             self.best_loss = loss
             self._save_checkpoint(model, optimizer, lr_scheduler, epoch)
             self.patience_counter = 0
@@ -82,11 +82,14 @@ class Trainer:
         self.model = model
         self.optim = optimizer
         self.batch_size = batch_size
-        self.criterion = F.binary_cross_entropy
+        self.criterion = torch.nn.BCEWithLogitsLoss()
+        # self.criterion = torch.nn.BCELoss()
+        # self.criterion = BinaryFocalLossWithLogits(alpha=0.25, reduction='mean')
         self.validate_every = validate_every
         self.checkpoint_saver = checkpoint_saver
         self.epoch = 1
         self.logger = Logger(self.model.name)
+        self.model_load_path = model_load_path
 
         self.lr_scheduler = lr_scheduler
         self.num_epochs = num_epochs
@@ -143,7 +146,7 @@ class Trainer:
                     self.checkpoint_saver(
                         validation_loss, self.model, self.optim, self.lr_scheduler, epoch):
 
-                    eprint('Stopping early at val loss:', validation_loss)
+                    eprint('Stopping early at val loss:', self.checkpoint_saver.best_loss)
                     return
                 self.lr_scheduler.step(validation_loss)
 
@@ -160,7 +163,7 @@ class Trainer:
             # forward
             output = self.model(X)
             loss = self.criterion(output, y)
-            total_loss += loss.item()
+            total_loss += loss.mean().item()
 
             # backward
             self.optim.zero_grad()
@@ -185,7 +188,7 @@ class Trainer:
 
                 # forward
                 output = self.model(X)
-                total_loss += self.criterion(output, y).item()
+                total_loss += self.criterion(output, y).mean().item()
 
         self.model.train()
         return total_loss / count
@@ -194,6 +197,13 @@ class Trainer:
         if data_loader is None:
             data_loader = self.val_loader
 
+        eprint('[Evaluation]')
+        if self.model_load_path is not None:
+            self._load_model(self.model_load_path)
+        else: 
+            eprint('> Couldn\'t load model as there was no load path given!')
+            eprint('> Running with latest in-memory weights.')
+        
         self.model.eval()
         TP, FP, TN, FN = 0, 0, 0, 0
 
@@ -237,6 +247,9 @@ class Trainer:
         eprint(avgs)
 
         eprint(TP, FP, TN, FN)
+        acc = (TP + TN) / (TP+FP+TN+FN)
+        eprint(f'Accuracy: {round(acc, 5)}')
+
         self.logger.log_stats(TP, FP, TN, FN)
         self.logger.close()
 
@@ -267,8 +280,17 @@ class Trainer:
         self.train_loader = DataLoader(
             train_ds, batch_size, sampler=train_ds.sampler)
         self.val_loader = DataLoader(
-            val_ds, batch_size, sampler=val_ds.sampler)
+            val_ds, batch_size, shuffle=False)
 
+def get_generator(cross_validating, axis, path, train_ids, num_test_channels, k):
+    if cross_validating:
+        dataset_generator = k_fold_train_val_sets(
+            axis, k, path, train_ids, num_test_channels)
+    else:
+        dataset_generator = train_val_sets(
+            axis, 0.15, path, train_ids, num_test_channels)
+    
+    return dataset_generator
 
 if __name__ == '__main__':
     seed_everything()
@@ -278,49 +300,52 @@ if __name__ == '__main__':
         num_epochs = params['epochs']
         axis = params['axis']
         cross_validating = params['CV']
+        variant = params['variant']
 
     path = os.path.join('..', '..', 'pickled_samples')
 
     train_ids, test_ids = train_test_split_ids(
-        axis, path, f'test_{axis}.split', test_percent=0.15)
+        axis, path, f'test_{axis}.split', test_percent=0.13)
 
     num_test_channels = None if axis == 'sa' else SALEDataset(
         path, test_ids).num_channels
 
-    if cross_validating:
-        k = 8
-        dataset_generator = k_fold_train_val_sets(
-            axis, k, path, train_ids, num_test_channels)
-        model_save_path = None
-    else:
-        dataset_generator = train_val_sets(
-            axis, 0.15, path, train_ids, num_test_channels)
-        model_save_path = 'saved_models'
+    model_save_path = 'saved_models'
+    if cross_validating: model_save_path = os.path.join(model_save_path, 'CV')
 
-    for block_index, (train_ds, val_ds) in enumerate(dataset_generator):
-        if cross_validating:
-            eprint(
-                f'[Cross validation] current val block: {block_index+1}/{k}')
-        for batch_size in params["batch_size"]:
-            for learning_rate in params["learning_rate"]:
-                for model_type in params["model"]:
-                    eprint(
-                        f'Running with: batch_size: {batch_size}, lr: {learning_rate}')
+    k = 8 if cross_validating else None
 
-                    model_name = f'{model_type}_bs{batch_size}_lr{learning_rate}_{axis}'
+    model_variant = '' if len(variant) == 0 else '_' + variant
+
+    for batch_size in params["batch_size"]:
+        for learning_rate in params["learning_rate"]:
+            for model_type in params["model"]:
+                eprint(f'Running {model_type}{model_variant} with: batch_size: {batch_size}, lr: {learning_rate}')
+
+                dataset_generator = get_generator(
+                    cross_validating, axis, path, train_ids, num_test_channels, k)
+                
+                for block_index, (train_ds, val_ds) in enumerate(dataset_generator):
+                    if cross_validating:
+                        eprint(f'[Cross validation] current val block: {block_index+1}/{k}')
+                    
+                    model_name = f'{model_type}{model_variant}_bs{batch_size}_lr{learning_rate}_{axis}'
+                    if cross_validating:
+                        model_name = f'CV{block_index+1}-{k}_' + model_name
 
                     net = nets.create_model(
-                        model_type, train_ds.num_channels, input_shape, name)
+                        model_type, train_ds.num_channels, input_shape, model_name, variant)
                     net.to(device)
 
-                    optim = torch.optim.Adam(
-                        params=net.parameters(), lr=learning_rate)
+                    # optim = torch.optim.Adam(
+                    #     params=net.parameters(), lr=learning_rate)
+                    optim = torch.optim.SGD(
+                        net.parameters(), lr=learning_rate, momentum=0.9)
 
-                    es_patience = 40 if cross_validating else 160
-                    es = None if cross_validating \
-                        else EarlyStopping(patience=es_patience, delta=0.0, model_save_path=model_save_path)
+                    es_patience = 40 if cross_validating else 80
+                    es = EarlyStopping(patience=es_patience, delta=0.0, model_save_path=model_save_path)
                     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                        optim, patience=es_patience//8, verbose=True)
+                        optim, patience=es_patience//4, verbose=True)
 
                     trainer = Trainer(
                         model=net,
