@@ -74,19 +74,19 @@ ResNet34:
 SimmCNN:
 | SA | SALE |
 | :---: | :---: |
-|![SimmCNN SA loss](ml\statistics\conf_matrices\SimmCNN_SA_conf_matrix.jpg) | ![SimmCNN SALE loss](ml\statistics\conf_matrices\SimmCNN_SALE_conf_matrix.jpg)|
+|![SimmCNN SA loss](ml/statistics/conf_matrices/SimmCNN_SA_conf_matrix.jpg) | ![SimmCNN SALE loss](ml/statistics/conf_matrices/SimmCNN_SALE_conf_matrix.jpg)|
 
 LongCNN:
 | SA | SALE |
 | :---: | :---: |
-|![LongCNN SA loss](ml\statistics\conf_matrices\LongCNN_SA_conf_matrix.jpg) | ![LongCNN SALE loss](ml\statistics\conf_matrices\LongCNN_SALE_conf_matrix.jpg)|
+|![LongCNN SA loss](ml/statistics/conf_matrices/LongCNN_SA_conf_matrix.jpg) | ![LongCNN SALE loss](ml/statistics/conf_matrices/LongCNN_SALE_conf_matrix.jpg)|
 
 ResNet18:
 | SA | SALE |
 | :---: | :---: |
-|![ResNet18 SA loss](ml\statistics\conf_matrices\ResNet18_SA_conf_matrix.jpg) | ![ResNet18 SALE loss](ml\statistics\conf_matrices\ResNet18_SALE_conf_matrix.jpg)|
+|![ResNet18 SA loss](ml/statistics/conf_matrices/ResNet18_SA_conf_matrix.jpg) | ![ResNet18 SALE loss](ml/statistics/conf_matrices/ResNet18_SALE_conf_matrix.jpg)|
 
 ResNet34:
 | SA | SALE |
 | :---: | :---: |
-|![ResNet34 SA loss](ml\statistics\conf_matrices\ResNet34_SA_conf_matrix.jpg) | ![ResNet34 SALE loss](ml\statistics\conf_matrices\ResNet34_SALE_conf_matrix.jpg)|
+|![ResNet34 SA loss](ml/statistics/conf_matrices/ResNet34_SA_conf_matrix.jpg) | ![ResNet34 SALE loss](ml/statistics/conf_matrices/ResNet34_SALE_conf_matrix.jpg)|
