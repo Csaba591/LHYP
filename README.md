@@ -45,26 +45,26 @@ ResNet34: BS: 164 [PyTorch impl](https://github.com/pytorch/vision/blob/master/t
 
 ### Test set accuracy:
 
-![Accuracy](ml\statistics\test_results.png)
+![Accuracy](ml/statistics/test_results.png)
 
 ### Loss plots (red line=lowest val loss=last saved checkpoint):
 
 SimmCNN:
 | SA | SALE |
 | :---: | :---: |
-|![SimmCNN SA loss](ml\statistics\loss\SimmCNN_bs256_lr0.01_sa_loss.png) | ![SimmCNN SALE loss](ml\statistics\loss\SimmCNN_bs256_lr0.01_sa_loss.png)|
+|![SimmCNN SA loss](ml/statistics/loss/SimmCNN_bs256_lr0.01_sa_loss.png) | ![SimmCNN SALE loss](ml/statistics/loss/SimmCNN_bs256_lr0.01_sa_loss.png)|
 
 LongCNN:
 | SA | SALE |
 | :---: | :---: |
-|![LongCNN SA loss](ml\statistics\loss\LongCNN_bs256_lr0.01_sa_loss.png) | ![LongCNN SALE loss](ml\statistics\loss\LongCNN_bs256_lr0.01_sa_loss.png)|
+|![LongCNN SA loss](ml/statistics/loss/LongCNN_bs256_lr0.01_sa_loss.png) | ![LongCNN SALE loss](ml/statistics/loss/LongCNN_bs256_lr0.01_sa_loss.png)|
 
 ResNet18:
 | SA | SALE |
 | :---: | :---: |
-| ![ResNet18 SA loss](ml\statistics\loss\ResNet18_bs256_lr0.01_sa_loss.png) | ![ResNet18 SALE loss](ml\statistics\loss\ResNet18_bs256_lr0.01_sa_loss.png) |
+| ![ResNet18 SA loss](ml/statistics/loss/ResNet18_bs256_lr0.01_sa_loss.png) | ![ResNet18 SALE loss](ml/statistics/loss/ResNet18_bs256_lr0.01_sa_loss.png) |
 
 ResNet34:
 | SA | SALE |
 | :---: | :---: |
-| ![ResNet34 SA loss](ml\statistics\loss\ResNet34_bs164_lr0.01_sa_loss.png) | ![ResNet34 SALE loss](ml\statistics\loss\ResNet34_bs164_lr0.01_sa_loss.png) |
+| ![ResNet34 SA loss](ml/statistics/loss/ResNet34_bs164_lr0.01_sa_loss.png) | ![ResNet34 SALE loss](ml/statistics/loss/ResNet34_bs164_lr0.01_sa_loss.png) |
