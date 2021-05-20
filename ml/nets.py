@@ -366,8 +366,6 @@ def create_model(model_type, in_channels, input_shape, name, variant):
         return create_resnet(resnet101, in_channels, 4, name)
     elif mt == 'dropoutcnn':
         return DropoutCNN(in_channels, input_shape, name)
-    elif mt == 'maxpoolcnn':
-        return MaxpoolCNN(in_channels, input_shape, name)
     elif mt == 'longcnn':
         return LongCNN(in_channels, input_shape, name)
     elif mt == 'simmcnn':
